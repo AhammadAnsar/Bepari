@@ -1,0 +1,25 @@
+name: Bepari Phase 0 CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: TypeScript Strict Check
+        run: npm run lint
+      - name: Run Unit & Disposable PostgreSQL Integration Tests
+        run: npm test
+      - name: Production Frontend Build
+        run: npm run build
