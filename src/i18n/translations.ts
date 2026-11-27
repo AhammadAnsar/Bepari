@@ -5,6 +5,7 @@ export interface Dictionary {
   nav: {
     overview: string;
     sales: string;
+    quotations: string;
     customers: string;
     pos: string;
     products: string;
@@ -17,6 +18,7 @@ export interface Dictionary {
   };
   actions: {
     newInvoice: string;
+    newQuotation: string;
     receivePayment: string;
     newCustomer: string;
     newExpense: string;
@@ -44,6 +46,9 @@ export interface Dictionary {
   status: {
     draft: string;
     sent: string;
+    accepted: string;
+    converted: string;
+    expired: string;
     partial: string;
     paid: string;
     overdue: string;
@@ -150,6 +155,7 @@ export const DICT: Record<Language, Dictionary> = {
     nav: {
       overview: 'সারসংক্ষেপ',
       sales: 'বিক্রয় ও ইনভয়েস',
+      quotations: 'কোটেশন',
       customers: 'কাস্টমার',
       pos: 'ক্যাশ কাউন্টার',
       products: 'প্রোডাক্টস',
@@ -162,6 +168,7 @@ export const DICT: Record<Language, Dictionary> = {
     },
     actions: {
       newInvoice: 'নতুন ইনভয়েস',
+      newQuotation: 'নতুন কোটেশন',
       receivePayment: 'পেমেন্ট গ্রহণ',
       newCustomer: 'নতুন কাস্টমার',
       newExpense: 'নতুন খরচ',
@@ -189,6 +196,9 @@ export const DICT: Record<Language, Dictionary> = {
     status: {
       draft: 'খসড়া',
       sent: 'প্রেরিত',
+      accepted: 'অনুমোদিত',
+      converted: 'ইনভয়েসে রূপান্তরিত',
+      expired: 'মেয়াদোত্তীর্ণ',
       partial: 'আংশিক পরিশোধ',
       paid: 'পরিশোধিত',
       overdue: 'বকেয়া মেয়াদোত্তীর্ণ',
@@ -293,6 +303,7 @@ export const DICT: Record<Language, Dictionary> = {
     nav: {
       overview: 'Overview',
       sales: 'Sales & Invoices',
+      quotations: 'Quotations',
       customers: 'Customers',
       pos: 'POS Counter',
       products: 'Products',
@@ -305,6 +316,7 @@ export const DICT: Record<Language, Dictionary> = {
     },
     actions: {
       newInvoice: 'New Invoice',
+      newQuotation: 'New Quotation',
       receivePayment: 'Receive Payment',
       newCustomer: 'Add Customer',
       newExpense: 'Log Expense',
@@ -332,6 +344,9 @@ export const DICT: Record<Language, Dictionary> = {
     status: {
       draft: 'Draft',
       sent: 'Sent',
+      accepted: 'Accepted',
+      converted: 'Converted',
+      expired: 'Expired',
       partial: 'Partial',
       paid: 'Paid',
       overdue: 'Overdue',

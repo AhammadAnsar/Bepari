@@ -7,10 +7,13 @@ import type {
   Language,
   Organization,
   Product,
+  Quotation,
   StatementRow,
 } from '../engine/types';
 import { renderCode128BSvg } from './barcode';
 import {
+  amountToWords,
+  formatDocumentLineSpecs,
   renderCashMemoHtml,
   resolveCashMemoConfig,
   type CashMemoSettings,
@@ -19,7 +22,9 @@ import {
 import { computeProductMargin } from './productDirectory';
 
 export type PdfExportSpec =
-  | { type: 'invoice'; invoice: Invoice }
+  | { type: 'invoice'; invoice: Invoice; includeVat?: boolean }
+  | { type: 'delivery_challan'; invoice: Invoice }
+  | { type: 'quotation'; quotation: Quotation }
   | { type: 'mushak_63'; invoice: Invoice }
   | {
       type: 'pos_receipt';
@@ -107,6 +112,32 @@ function reportHeaderHtml(
   `;
 }
 
+function documentBrandFooterHtml(org: Organization, lang: Language): string {
+  const { config, footerBrandLogos } = resolveCashMemoConfig(org.cashMemoSettings, undefined, org, lang);
+  const noteHtml = config.footerNote
+    ? `<div style="margin-top:14px;font-size:11px;color:#334155;font-weight:500;">${escapeHtml(config.footerNote)}</div>`
+    : '';
+  const sloganHtml =
+    config.showFooterSlogan && config.slogan
+      ? `<div style="margin-top:6px;text-align:center;font-size:11px;font-weight:600;color:#0F766E;">${escapeHtml(config.slogan)}</div>`
+      : '';
+  const logosHtml =
+    config.showFooterBrandLogos && footerBrandLogos.length > 0
+      ? `<div style="margin-top:12px;padding-top:10px;border-top:1px dashed #CBD5E1;display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;">
+           ${footerBrandLogos
+             .map(
+               (logo) => `
+               <div style="display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border:1px solid #E2E8F0;border-radius:6px;background:#FFFFFF;">
+                 <img src="${escapeHtml(logo.dataUrl)}" alt="${escapeHtml(logo.name || 'Brand')}" style="height:22px;max-width:78px;object-fit:contain;display:block;" />
+                 ${logo.name ? `<span style="font-size:10px;font-weight:600;color:#334155;">${escapeHtml(logo.name)}</span>` : ''}
+               </div>`,
+             )
+             .join('')}
+         </div>`
+      : '';
+  return `${noteHtml}${sloganHtml}${logosHtml}`;
+}
+
 function reportFooterHtml(lang: Language): string {
   const isBn = lang === 'bn';
   return `
@@ -135,31 +166,58 @@ export function buildPdfTemplate(
   switch (spec.type) {
     case 'invoice': {
       const inv = spec.invoice;
+      const { config } = resolveCashMemoConfig(org.cashMemoSettings, undefined, org, lang);
+      const includeVat = spec.includeVat ?? true;
+      const challanNo = inv.challanNumber || inv.mushakChallanNo || '—';
+      const challanDate = formatDate(inv.challanDate || inv.issueDate, lang);
+
       const rows = (inv.items || [])
-        .map(
-          (line, idx) => `
+        .map((line, idx) => {
+          const specsText = formatDocumentLineSpecs(line, config, isBn);
+          const grossWithoutVat = Number((line.taxableValue ?? line.quantity * line.unitPrice).toFixed(2));
+          const displayLineTotal = includeVat ? line.lineTotal : grossWithoutVat;
+          return `
             <tr>
-              <td style="padding:8px 10px;border-bottom:1px solid #E2E8F0;font-size:11px;color:#64748B;">${escapeHtml(formatNumber(idx + 1, lang))}</td>
-              <td style="padding:8px 10px;border-bottom:1px solid #E2E8F0;font-size:12px;color:#0F172A;font-weight:500;">${escapeHtml(line.description)}</td>
-              <td style="padding:8px 10px;border-bottom:1px solid #E2E8F0;font-size:12px;text-align:right;">${escapeHtml(formatNumber(line.quantity, lang))}</td>
-              <td style="padding:8px 10px;border-bottom:1px solid #E2E8F0;font-size:12px;text-align:right;">${escapeHtml(money(line.unitPrice))}</td>
-              <td style="padding:8px 10px;border-bottom:1px solid #E2E8F0;font-size:11px;text-align:right;color:#475569;">${escapeHtml(formatNumber(line.taxRate, lang))}%</td>
-              <td style="padding:8px 10px;border-bottom:1px solid #E2E8F0;font-size:12px;text-align:right;">${escapeHtml(money(line.vatAmount))}</td>
-              <td style="padding:8px 10px;border-bottom:1px solid #E2E8F0;font-size:12px;text-align:right;font-weight:600;">${escapeHtml(money(line.lineTotal))}</td>
+              <td style="padding:8px 10px;border-bottom:1px solid #E2E8F0;font-size:11px;color:#64748B;vertical-align:top;">${escapeHtml(formatNumber(idx + 1, lang))}</td>
+              <td style="padding:8px 10px;border-bottom:1px solid #E2E8F0;font-size:12px;color:#0F172A;font-weight:500;vertical-align:top;">
+                <div>${escapeHtml(line.description)}</div>
+                ${specsText ? `<div style="font-size:10px;color:#475569;font-weight:400;margin-top:2px;">${escapeHtml(specsText)}</div>` : ''}
+              </td>
+              <td style="padding:8px 10px;border-bottom:1px solid #E2E8F0;font-size:12px;text-align:right;vertical-align:top;">${escapeHtml(formatNumber(line.quantity, lang))}</td>
+              <td style="padding:8px 10px;border-bottom:1px solid #E2E8F0;font-size:12px;text-align:right;vertical-align:top;">${escapeHtml(money(line.unitPrice))}</td>
+              ${
+                includeVat
+                  ? `<td style="padding:8px 10px;border-bottom:1px solid #E2E8F0;font-size:11px;text-align:right;color:#475569;vertical-align:top;">${escapeHtml(formatNumber(line.taxRate, lang))}%</td>
+                     <td style="padding:8px 10px;border-bottom:1px solid #E2E8F0;font-size:12px;text-align:right;vertical-align:top;">${escapeHtml(money(line.vatAmount))}</td>`
+                  : ''
+              }
+              <td style="padding:8px 10px;border-bottom:1px solid #E2E8F0;font-size:12px;text-align:right;font-weight:600;vertical-align:top;">${escapeHtml(money(displayLineTotal))}</td>
             </tr>
-          `
-        )
+          `;
+        })
         .join('');
+
+      const payableTotal = includeVat ? inv.grandTotal : inv.subtotal;
+      const paidAmount = Math.min(inv.paidAmount, payableTotal);
+      const balanceDue = Number(Math.max(0, payableTotal - paidAmount).toFixed(2));
 
       const html = baseWrap(`
         ${reportHeaderHtml(
           org,
           lang,
-          isBn ? 'ট্যাক্স ইনভয়েস' : 'TAX INVOICE',
-          `${inv.invoiceNumber} · ${isBn ? 'মূসক ৬.৩' : 'Mushak 6.3'}: ${inv.mushakChallanNo}`
+          includeVat
+            ? isBn
+              ? 'ট্যাক্স ইনভয়েস'
+              : 'TAX INVOICE'
+            : isBn
+              ? 'ইনভয়েস / বিল'
+              : 'INVOICE / BILL',
+          includeVat
+            ? `${inv.invoiceNumber} · ${isBn ? 'মূসক ৬.৩' : 'Mushak 6.3'}: ${inv.mushakChallanNo}`
+            : inv.invoiceNumber
         )}
 
-        <div style="display:flex;justify-content:space-between;gap:24px;margin-bottom:20px;font-size:12px;">
+        <div style="display:flex;justify-content:space-between;gap:24px;margin-bottom:14px;font-size:12px;">
           <div style="max-width:55%;">
             <div style="font-size:10px;font-weight:700;color:#64748B;text-transform:uppercase;margin-bottom:4px;">${isBn ? 'ক্রেতা (Bill To)' : 'Bill To'}</div>
             <div style="font-size:14px;font-weight:700;color:#0F172A;">${escapeHtml(inv.customerName)}</div>
@@ -176,6 +234,12 @@ export function buildPdfTemplate(
           </div>
         </div>
 
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;padding:7px 12px;margin-bottom:16px;border:1px solid #CBD5E1;background:#F8FAFC;border-radius:6px;font-size:11px;color:#0F172A;">
+          <div><strong>P.O No:</strong> <span style="font-family:'IBM Plex Mono',monospace;font-weight:600;">${escapeHtml(inv.poNumber || '—')}</span></div>
+          <div><strong>Challan No:</strong> <span style="font-family:'IBM Plex Mono',monospace;font-weight:600;">${escapeHtml(challanNo)}</span></div>
+          <div><strong>Challan Date:</strong> <span style="font-weight:600;">${escapeHtml(challanDate)}</span></div>
+        </div>
+
         <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
           <thead>
             <tr style="background:#F8FAFC;border-top:1px solid #CBD5E1;border-bottom:1px solid #CBD5E1;font-size:11px;color:#475569;">
@@ -183,8 +247,12 @@ export function buildPdfTemplate(
               <th style="padding:9px 10px;text-align:left;font-weight:600;">${isBn ? 'বিবরণ' : 'Description'}</th>
               <th style="padding:9px 10px;text-align:right;font-weight:600;">${isBn ? 'পরিমাণ' : 'Qty'}</th>
               <th style="padding:9px 10px;text-align:right;font-weight:600;">${isBn ? 'দর' : 'Rate'}</th>
-              <th style="padding:9px 10px;text-align:right;font-weight:600;">${isBn ? 'মূসক %' : 'VAT %'}</th>
-              <th style="padding:9px 10px;text-align:right;font-weight:600;">${isBn ? 'মূসক' : 'VAT'}</th>
+              ${
+                includeVat
+                  ? `<th style="padding:9px 10px;text-align:right;font-weight:600;">${isBn ? 'মূসক %' : 'VAT %'}</th>
+                     <th style="padding:9px 10px;text-align:right;font-weight:600;">${isBn ? 'মূসক' : 'VAT'}</th>`
+                  : ''
+              }
               <th style="padding:9px 10px;text-align:right;font-weight:600;">${isBn ? 'মোট' : 'Amount'}</th>
             </tr>
           </thead>
@@ -193,6 +261,9 @@ export function buildPdfTemplate(
 
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:24px;">
           <div style="max-width:48%;font-size:11px;color:#475569;">
+            <div style="margin-bottom:8px;">
+              <strong style="color:#0F172A;">${isBn ? 'কথায়' : 'In Words'}:</strong> ${escapeHtml(amountToWords(payableTotal, lang))}
+            </div>
             ${
               inv.notes
                 ? `<div style="font-weight:600;color:#0F172A;margin-bottom:4px;">${isBn ? 'নোট ও শর্তাবলি' : 'Notes & Terms'}</div><div>${escapeHtml(inv.notes)}</div>`
@@ -201,33 +272,251 @@ export function buildPdfTemplate(
           </div>
           <div style="width:270px;font-size:12px;">
             <div style="display:flex;justify-content:space-between;padding:5px 0;color:#475569;">
-              <span>${isBn ? 'করযোগ্য মূল্য' : 'Taxable Subtotal'}</span>
+              <span>${isBn ? 'উপ-মোট মূল্য' : 'Subtotal'}</span>
               <span>${escapeHtml(money(inv.subtotal))}</span>
             </div>
-            <div style="display:flex;justify-content:space-between;padding:5px 0;color:#475569;">
-              <span>${isBn ? 'মোট মূসক (VAT)' : 'Total VAT'}</span>
-              <span>${escapeHtml(money(inv.vatTotal))}</span>
-            </div>
+            ${
+              includeVat
+                ? `<div style="display:flex;justify-content:space-between;padding:5px 0;color:#475569;">
+                     <span>${isBn ? 'মোট মূসক (VAT)' : 'Total VAT'}</span>
+                     <span>${escapeHtml(money(inv.vatTotal))}</span>
+                   </div>`
+                : ''
+            }
             <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1.5px solid #0F172A;font-size:14px;font-weight:700;color:#0F172A;">
               <span>${isBn ? 'সর্বমোট প্রদেয়' : 'Grand Total'}</span>
-              <span>${escapeHtml(money(inv.grandTotal))}</span>
+              <span>${escapeHtml(money(payableTotal))}</span>
             </div>
             <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:11px;color:#475569;">
               <span>${isBn ? 'পরিশোধিত' : 'Paid'}</span>
-              <span>${escapeHtml(money(inv.paidAmount))}</span>
+              <span>${escapeHtml(money(paidAmount))}</span>
             </div>
             <div style="display:flex;justify-content:space-between;padding:7px 0;border-top:1px solid #E2E8F0;font-size:13px;font-weight:700;color:#0F766E;">
               <span>${isBn ? 'বকেয়া পরিমাণ' : 'Balance Due'}</span>
-              <span>${escapeHtml(money(inv.balanceDue))}</span>
+              <span>${escapeHtml(money(balanceDue))}</span>
             </div>
           </div>
         </div>
 
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:34px;font-size:11px;color:#334155;font-weight:600;">
+          <div style="border-top:1px solid #334155;padding-top:5px;width:150px;text-align:center;">${escapeHtml(config.customerSignLabel || (isBn ? 'ক্রেতার স্বাক্ষর' : 'Customer Signature'))}</div>
+          <div style="border-top:1px solid #334155;padding-top:5px;width:150px;text-align:center;">${escapeHtml(config.authorizedSignLabel || (isBn ? 'কর্তৃপক্ষের স্বাক্ষর' : 'Authorized Signature'))}</div>
+        </div>
+
+        ${documentBrandFooterHtml(org, lang)}
         ${reportFooterHtml(lang)}
       `);
 
       return {
-        filename: `${sanitizeFilePart(inv.invoiceNumber)}.pdf`,
+        filename: `${sanitizeFilePart(inv.invoiceNumber)}${includeVat ? '' : '-no-mushak'}.pdf`,
+        widthPx: 794,
+        pageFormat: 'a4',
+        html,
+      };
+    }
+
+    case 'delivery_challan': {
+      const inv = spec.invoice;
+      const { config } = resolveCashMemoConfig(org.cashMemoSettings, undefined, org, lang);
+      const challanNo = inv.challanNumber || inv.mushakChallanNo || `CHL-${inv.invoiceNumber}`;
+      const challanDate = formatDate(inv.challanDate || inv.issueDate, lang);
+      const totalQty = (inv.items || []).reduce((acc, item) => acc + Number(item.quantity || 0), 0);
+
+      const rows = (inv.items || [])
+        .map((line, idx) => {
+          const specsText = formatDocumentLineSpecs(line, config, isBn);
+          return `
+            <tr>
+              <td style="padding:9px 10px;border-bottom:1px solid #CBD5E1;font-size:11px;color:#475569;text-align:center;vertical-align:top;width:54px;">${escapeHtml(formatNumber(idx + 1, lang))}</td>
+              <td style="padding:9px 10px;border-bottom:1px solid #CBD5E1;font-size:12px;color:#0F172A;font-weight:600;vertical-align:top;">
+                <div>${escapeHtml(line.description)}</div>
+                ${specsText ? `<div style="font-size:11px;color:#475569;font-weight:400;margin-top:2px;">${escapeHtml(specsText)}</div>` : ''}
+              </td>
+              <td style="padding:9px 10px;border-bottom:1px solid #CBD5E1;font-size:13px;font-weight:700;text-align:right;vertical-align:top;width:120px;">${escapeHtml(formatNumber(line.quantity, lang))}</td>
+            </tr>
+          `;
+        })
+        .join('');
+
+      const html = baseWrap(`
+        ${reportHeaderHtml(
+          org,
+          lang,
+          isBn ? 'ডেলিভারি চালান (DELIVERY CHALLAN)' : 'DELIVERY CHALLAN',
+          `${isBn ? 'চালান নং' : 'Challan No'}: ${challanNo} · ${isBn ? 'মেমো/ইনভয়েস' : 'Invoice Ref'}: ${inv.invoiceNumber}`
+        )}
+
+        <div style="display:flex;justify-content:space-between;gap:24px;margin-bottom:14px;font-size:12px;">
+          <div style="max-width:55%;">
+            <div style="font-size:10px;font-weight:700;color:#64748B;text-transform:uppercase;margin-bottom:4px;">${isBn ? 'ডেলিভারি প্রাপক (Deliver To)' : 'Deliver To'}</div>
+            <div style="font-size:14px;font-weight:700;color:#0F172A;">${escapeHtml(inv.customerName)}</div>
+            ${inv.customerCompanyName ? `<div style="color:#334155;font-weight:500;margin-top:2px;">${escapeHtml(inv.customerCompanyName)}</div>` : ''}
+            ${inv.customerAddress ? `<div style="color:#475569;margin-top:2px;">${escapeHtml(inv.customerAddress)}</div>` : ''}
+            ${inv.customerPhone ? `<div style="color:#475569;margin-top:2px;">${isBn ? 'ফোন' : 'Phone'}: ${escapeHtml(inv.customerPhone)}</div>` : ''}
+          </div>
+          <div style="text-align:right;">
+            <div style="margin-bottom:4px;"><span style="color:#64748B;">${isBn ? 'মেমো / বিল নং' : 'Invoice / Memo No'}:</span> <strong>${escapeHtml(inv.invoiceNumber)}</strong></div>
+            <div style="margin-bottom:4px;"><span style="color:#64748B;">${isBn ? 'ইস্যু তারিখ' : 'Issue Date'}:</span> <strong>${escapeHtml(formatDate(inv.issueDate, lang))}</strong></div>
+            <div><span style="color:#64748B;">${isBn ? 'শাখা / গুদাম' : 'Dispatch Branch'}:</span> <strong>${escapeHtml((isBn ? inv.branchNameBn || inv.branchName : inv.branchName) || '—')}</strong></div>
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;padding:8px 12px;margin-bottom:18px;border:1px solid #0F766E;background:#F0FDFA;border-radius:6px;font-size:11px;color:#0F172A;">
+          <div><strong>P.O No:</strong> <span style="font-family:'IBM Plex Mono',monospace;font-weight:700;">${escapeHtml(inv.poNumber || '—')}</span></div>
+          <div><strong>Challan No:</strong> <span style="font-family:'IBM Plex Mono',monospace;font-weight:700;color:#0F766E;">${escapeHtml(challanNo)}</span></div>
+          <div><strong>Challan Date:</strong> <span style="font-weight:700;">${escapeHtml(challanDate)}</span></div>
+        </div>
+
+        <table style="width:100%;border-collapse:collapse;margin-bottom:20px;border:1px solid #CBD5E1;">
+          <thead>
+            <tr style="background:#0F172A;color:#FFFFFF;font-size:11px;">
+              <th style="padding:9px 10px;text-align:center;font-weight:600;width:54px;">${isBn ? 'ক্রমিক' : 'SL'}</th>
+              <th style="padding:9px 10px;text-align:left;font-weight:600;">${isBn ? 'পণ্যের বিবরণ ও স্পেসিফিকেশন' : 'Item Description & Specifications'}</th>
+              <th style="padding:9px 10px;text-align:right;font-weight:600;width:120px;">${isBn ? 'পরিমাণ (Qty)' : 'Quantity'}</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+          <tfoot>
+            <tr style="background:#F8FAFC;font-weight:700;font-size:13px;">
+              <td colspan="2" style="padding:10px;text-align:right;border-top:1.5px solid #0F172A;">${isBn ? 'মোট ডেলিভারি পরিমাণ' : 'Total Delivered Quantity'}</td>
+              <td style="padding:10px;text-align:right;border-top:1.5px solid #0F172A;color:#0F766E;">${escapeHtml(formatNumber(totalQty, lang))}</td>
+            </tr>
+          </tfoot>
+        </table>
+
+        ${
+          inv.notes
+            ? `<div style="margin-bottom:20px;padding:10px 12px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:6px;font-size:11px;color:#334155;">
+                 <strong style="color:#0F172A;">${isBn ? 'ডেলিভারি নির্দেশনা / নোট:' : 'Delivery Instructions / Notes:'}</strong> ${escapeHtml(inv.notes)}
+               </div>`
+            : ''
+        }
+
+        <div style="font-size:11px;color:#475569;margin-bottom:38px;">
+          ${isBn ? 'উপরোক্ত পণ্যসমূহ সঠিক ও অক্ষত অবস্থায় বুঝিয়া পাইলাম।' : 'Received the above goods in good order and condition.'}
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:36px;font-size:11px;color:#0F172A;font-weight:600;">
+          <div style="border-top:1.5px solid #334155;padding-top:5px;width:155px;text-align:center;">${isBn ? 'গ্রহীতার স্বাক্ষর (Received By)' : 'Received By (Signature)'}</div>
+          <div style="border-top:1.5px solid #334155;padding-top:5px;width:155px;text-align:center;">${isBn ? 'যাচাইকারী (Checked By)' : 'Checked By'}</div>
+          <div style="border-top:1.5px solid #334155;padding-top:5px;width:155px;text-align:center;">${isBn ? 'কর্তৃপক্ষের স্বাক্ষর (Authorized)' : 'Authorized Signature'}</div>
+        </div>
+
+        ${documentBrandFooterHtml(org, lang)}
+        ${reportFooterHtml(lang)}
+      `);
+
+      return {
+        filename: `Delivery-Challan-${sanitizeFilePart(challanNo)}.pdf`,
+        widthPx: 794,
+        pageFormat: 'a4',
+        html,
+      };
+    }
+
+    case 'quotation': {
+      const q = spec.quotation;
+      const { config } = resolveCashMemoConfig(org.cashMemoSettings, undefined, org, lang);
+
+      const rows = (q.items || [])
+        .map((line, idx) => {
+          const specsText = formatDocumentLineSpecs(line, config, isBn);
+          return `
+            <tr>
+              <td style="padding:8px 10px;border-bottom:1px solid #E2E8F0;font-size:11px;color:#64748B;vertical-align:top;">${escapeHtml(formatNumber(idx + 1, lang))}</td>
+              <td style="padding:8px 10px;border-bottom:1px solid #E2E8F0;font-size:12px;color:#0F172A;font-weight:500;vertical-align:top;">
+                <div>${escapeHtml(line.description)}</div>
+                ${specsText ? `<div style="font-size:10px;color:#475569;font-weight:400;margin-top:2px;">${escapeHtml(specsText)}</div>` : ''}
+              </td>
+              <td style="padding:8px 10px;border-bottom:1px solid #E2E8F0;font-size:12px;text-align:right;vertical-align:top;">${escapeHtml(formatNumber(line.quantity, lang))}</td>
+              <td style="padding:8px 10px;border-bottom:1px solid #E2E8F0;font-size:12px;text-align:right;vertical-align:top;">${escapeHtml(money(line.unitPrice))}</td>
+              <td style="padding:8px 10px;border-bottom:1px solid #E2E8F0;font-size:11px;text-align:right;color:#475569;vertical-align:top;">${escapeHtml(formatNumber(line.taxRate, lang))}%</td>
+              <td style="padding:8px 10px;border-bottom:1px solid #E2E8F0;font-size:12px;text-align:right;vertical-align:top;">${escapeHtml(money(line.vatAmount))}</td>
+              <td style="padding:8px 10px;border-bottom:1px solid #E2E8F0;font-size:12px;text-align:right;font-weight:600;vertical-align:top;">${escapeHtml(money(line.lineTotal))}</td>
+            </tr>
+          `;
+        })
+        .join('');
+
+      const html = baseWrap(`
+        ${reportHeaderHtml(
+          org,
+          lang,
+          isBn ? 'মূল্য প্রস্তাবনা / কোটেশন (QUOTATION)' : 'PRICE QUOTATION',
+          `${q.quotationNumber} · ${isBn ? 'মেয়াদ' : 'Valid Until'}: ${formatDate(q.validUntil, lang)}`
+        )}
+
+        <div style="display:flex;justify-content:space-between;gap:24px;margin-bottom:16px;font-size:12px;">
+          <div style="max-width:55%;">
+            <div style="font-size:10px;font-weight:700;color:#64748B;text-transform:uppercase;margin-bottom:4px;">${isBn ? 'গ্রাহক / প্রতিষ্ঠান (Prepared For)' : 'Prepared For'}</div>
+            <div style="font-size:14px;font-weight:700;color:#0F172A;">${escapeHtml(q.customerName)}</div>
+            ${q.customerCompanyName ? `<div style="color:#334155;font-weight:500;margin-top:2px;">${escapeHtml(q.customerCompanyName)}</div>` : ''}
+            ${q.customerAddress ? `<div style="color:#475569;margin-top:2px;">${escapeHtml(q.customerAddress)}</div>` : ''}
+            ${q.customerPhone || q.customerEmail ? `<div style="color:#475569;margin-top:2px;">${[q.customerPhone, q.customerEmail].filter(Boolean).map((v) => escapeHtml(v)).join(' · ')}</div>` : ''}
+            ${q.customerBin ? `<div style="color:#475569;margin-top:2px;">BIN: ${escapeHtml(q.customerBin)}</div>` : ''}
+          </div>
+          <div style="text-align:right;">
+            <div style="margin-bottom:4px;"><span style="color:#64748B;">${isBn ? 'কোটেশন নং' : 'Quotation No'}:</span> <strong>${escapeHtml(q.quotationNumber)}</strong></div>
+            <div style="margin-bottom:4px;"><span style="color:#64748B;">${isBn ? 'ইস্যু তারিখ' : 'Issue Date'}:</span> <strong>${escapeHtml(formatDate(q.issueDate, lang))}</strong></div>
+            <div style="margin-bottom:4px;"><span style="color:#64748B;">${isBn ? 'মেয়াদ উত্তীর্ণের তারিখ' : 'Valid Until'}:</span> <strong>${escapeHtml(formatDate(q.validUntil, lang))}</strong></div>
+            ${q.poNumber ? `<div style="margin-bottom:4px;"><span style="color:#64748B;">P.O / Ref No:</span> <strong>${escapeHtml(q.poNumber)}</strong></div>` : ''}
+            <div><span style="color:#64748B;">${isBn ? 'শাখা' : 'Branch'}:</span> <strong>${escapeHtml((isBn ? q.branchNameBn || q.branchName : q.branchName) || '—')}</strong></div>
+          </div>
+        </div>
+
+        <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
+          <thead>
+            <tr style="background:#F8FAFC;border-top:1px solid #CBD5E1;border-bottom:1px solid #CBD5E1;font-size:11px;color:#475569;">
+              <th style="padding:9px 10px;text-align:left;font-weight:600;">#</th>
+              <th style="padding:9px 10px;text-align:left;font-weight:600;">${isBn ? 'পণ্য বা সেবার বিবরণ' : 'Description'}</th>
+              <th style="padding:9px 10px;text-align:right;font-weight:600;">${isBn ? 'পরিমাণ' : 'Qty'}</th>
+              <th style="padding:9px 10px;text-align:right;font-weight:600;">${isBn ? 'একক দর' : 'Unit Price'}</th>
+              <th style="padding:9px 10px;text-align:right;font-weight:600;">${isBn ? 'মূসক %' : 'VAT %'}</th>
+              <th style="padding:9px 10px;text-align:right;font-weight:600;">${isBn ? 'মূসক' : 'VAT'}</th>
+              <th style="padding:9px 10px;text-align:right;font-weight:600;">${isBn ? 'মোট' : 'Total'}</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:24px;">
+          <div style="max-width:50%;font-size:11px;color:#475569;">
+            <div style="margin-bottom:8px;">
+              <strong style="color:#0F172A;">${isBn ? 'কথায়' : 'In Words'}:</strong> ${escapeHtml(amountToWords(q.grandTotal, lang))}
+            </div>
+            ${
+              q.notes
+                ? `<div style="font-weight:600;color:#0F172A;margin-bottom:4px;">${isBn ? 'শর্তাবলি ও নোট' : 'Terms & Conditions'}</div><div>${escapeHtml(q.notes)}</div>`
+                : ''
+            }
+          </div>
+          <div style="width:270px;font-size:12px;">
+            <div style="display:flex;justify-content:space-between;padding:5px 0;color:#475569;">
+              <span>${isBn ? 'উপ-মোট' : 'Subtotal'}</span>
+              <span>${escapeHtml(money(q.subtotal))}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:5px 0;color:#475569;">
+              <span>${isBn ? 'মোট মূসক (VAT)' : 'Total VAT'}</span>
+              <span>${escapeHtml(money(q.vatTotal))}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1.5px solid #0F172A;font-size:14px;font-weight:700;color:#0F766E;">
+              <span>${isBn ? 'সর্বমোট প্রস্তাবিত মূল্য' : 'Total Quoted Amount'}</span>
+              <span>${escapeHtml(money(q.grandTotal))}</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:38px;font-size:11px;color:#334155;font-weight:600;">
+          <div style="border-top:1px solid #334155;padding-top:5px;width:165px;text-align:center;">${isBn ? 'গ্রাহকের সম্মতি স্বাক্ষর' : 'Customer Acceptance'}</div>
+          <div style="border-top:1px solid #334155;padding-top:5px;width:165px;text-align:center;">${isBn ? 'প্রস্তুতকারীর স্বাক্ষর' : 'Prepared & Authorized By'}</div>
+        </div>
+
+        ${documentBrandFooterHtml(org, lang)}
+        ${reportFooterHtml(lang)}
+      `);
+
+      return {
+        filename: `Quotation-${sanitizeFilePart(q.quotationNumber)}.pdf`,
         widthPx: 794,
         pageFormat: 'a4',
         html,

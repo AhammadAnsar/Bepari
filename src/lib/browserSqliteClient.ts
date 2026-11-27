@@ -16,9 +16,13 @@ function normalizeParams(params: unknown[] = []): SqlValue[] {
   });
 }
 
+let idbPromise: Promise<IDBDatabase> | null = null;
+
 function openSnapshotIdb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
+  if (idbPromise) return idbPromise;
+  idbPromise = new Promise((resolve, reject) => {
     if (typeof indexedDB === 'undefined') {
+      idbPromise = null;
       reject(new Error('IndexedDB unavailable in this browser environment.'));
       return;
     }
@@ -29,9 +33,19 @@ function openSnapshotIdb(): Promise<IDBDatabase> {
         db.createObjectStore(IDB_STORE);
       }
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error || new Error('Failed to open IndexedDB.'));
+    req.onsuccess = () => {
+      const db = req.result;
+      db.onclose = () => {
+        idbPromise = null;
+      };
+      resolve(db);
+    };
+    req.onerror = () => {
+      idbPromise = null;
+      reject(req.error || new Error('Failed to open IndexedDB.'));
+    };
   });
+  return idbPromise;
 }
 
 async function loadSnapshotBytes(): Promise<Uint8Array | null> {

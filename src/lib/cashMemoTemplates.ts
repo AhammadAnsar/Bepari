@@ -1,5 +1,11 @@
 import { formatDate, formatMoney, formatNumber } from '../engine/format';
-import type { Invoice, Language, Organization } from '../engine/types';
+import type { ComputedInvoiceLine, Invoice, Language, Organization } from '../engine/types';
+
+export interface FooterBrandLogo {
+  id: string;
+  name: string;
+  dataUrl: string;
+}
 
 export type CashMemoTemplateId =
   | 'navy-amber'
@@ -129,6 +135,13 @@ export interface CashMemoTemplateCustomization {
   showPaymentMethod: boolean;
   showAmountInWords: boolean;
   showAdvanceAndDue: boolean;
+  showPoAndChallan: boolean;
+  showProductDescription: boolean;
+  showProductBrand: boolean;
+  showProductSize: boolean;
+  showProductColor: boolean;
+  showFooterSlogan: boolean;
+  showFooterBrandLogos: boolean;
   colSl: string;
   colDesc: string;
   colQty: string;
@@ -142,6 +155,7 @@ export interface CashMemoTemplateCustomization {
 export interface CashMemoSettings {
   activeTemplateId: CashMemoTemplateId;
   thermalPaperWidth: ThermalPaperWidth;
+  footerBrandLogos?: FooterBrandLogo[];
   templates: Partial<Record<CashMemoTemplateId, Partial<CashMemoTemplateCustomization>>>;
 }
 
@@ -211,6 +225,13 @@ export const CASH_MEMO_TEMPLATES: Record<CashMemoTemplateId, CashMemoTemplateMet
       showPaymentMethod: true,
       showAmountInWords: true,
       showAdvanceAndDue: true,
+      showPoAndChallan: true,
+      showProductDescription: true,
+      showProductBrand: true,
+      showProductSize: true,
+      showProductColor: true,
+      showFooterSlogan: true,
+      showFooterBrandLogos: true,
       colSl: 'SL.No',
       colDesc: 'Description',
       colQty: 'Quantity',
@@ -265,6 +286,13 @@ export const CASH_MEMO_TEMPLATES: Record<CashMemoTemplateId, CashMemoTemplateMet
       showPaymentMethod: true,
       showAmountInWords: true,
       showAdvanceAndDue: true,
+      showPoAndChallan: true,
+      showProductDescription: true,
+      showProductBrand: true,
+      showProductSize: true,
+      showProductColor: true,
+      showFooterSlogan: true,
+      showFooterBrandLogos: true,
       colSl: 'No:',
       colDesc: 'Description',
       colQty: 'Quantity',
@@ -319,6 +347,13 @@ export const CASH_MEMO_TEMPLATES: Record<CashMemoTemplateId, CashMemoTemplateMet
       showPaymentMethod: true,
       showAmountInWords: true,
       showAdvanceAndDue: true,
+      showPoAndChallan: true,
+      showProductDescription: true,
+      showProductBrand: true,
+      showProductSize: true,
+      showProductColor: true,
+      showFooterSlogan: true,
+      showFooterBrandLogos: true,
       colSl: 'No:',
       colDesc: 'Description',
       colQty: 'Quantity',
@@ -373,6 +408,13 @@ export const CASH_MEMO_TEMPLATES: Record<CashMemoTemplateId, CashMemoTemplateMet
       showPaymentMethod: true,
       showAmountInWords: true,
       showAdvanceAndDue: true,
+      showPoAndChallan: true,
+      showProductDescription: true,
+      showProductBrand: true,
+      showProductSize: true,
+      showProductColor: true,
+      showFooterSlogan: true,
+      showFooterBrandLogos: true,
       colSl: 'সংখ্যা',
       colDesc: 'বিবরণ',
       colQty: 'পরিমাণ',
@@ -427,6 +469,13 @@ export const CASH_MEMO_TEMPLATES: Record<CashMemoTemplateId, CashMemoTemplateMet
       showPaymentMethod: true,
       showAmountInWords: true,
       showAdvanceAndDue: true,
+      showPoAndChallan: true,
+      showProductDescription: true,
+      showProductBrand: true,
+      showProductSize: true,
+      showProductColor: true,
+      showFooterSlogan: true,
+      showFooterBrandLogos: true,
       colSl: 'No:',
       colDesc: 'Description',
       colQty: 'Quantity',
@@ -481,6 +530,13 @@ export const CASH_MEMO_TEMPLATES: Record<CashMemoTemplateId, CashMemoTemplateMet
       showPaymentMethod: true,
       showAmountInWords: true,
       showAdvanceAndDue: true,
+      showPoAndChallan: true,
+      showProductDescription: true,
+      showProductBrand: true,
+      showProductSize: true,
+      showProductColor: true,
+      showFooterSlogan: true,
+      showFooterBrandLogos: true,
       colSl: 'No:',
       colDesc: 'Description',
       colQty: 'Quantity',
@@ -535,6 +591,13 @@ export const CASH_MEMO_TEMPLATES: Record<CashMemoTemplateId, CashMemoTemplateMet
       showPaymentMethod: true,
       showAmountInWords: true,
       showAdvanceAndDue: true,
+      showPoAndChallan: true,
+      showProductDescription: true,
+      showProductBrand: true,
+      showProductSize: true,
+      showProductColor: true,
+      showFooterSlogan: true,
+      showFooterBrandLogos: true,
       colSl: 'সংখ্যা',
       colDesc: 'বিবরণ',
       colQty: 'পরিমাণ',
@@ -551,6 +614,7 @@ export function getDefaultCashMemoSettings(): CashMemoSettings {
   return {
     activeTemplateId: 'navy-amber',
     thermalPaperWidth: '80mm',
+    footerBrandLogos: [],
     templates: {},
   };
 }
@@ -596,6 +660,26 @@ export function sanitizeCashMemoSettings(raw: unknown): CashMemoSettings {
 
   const thermalPaperWidth: ThermalPaperWidth = obj.thermalPaperWidth === '58mm' ? '58mm' : '80mm';
 
+  const footerBrandLogos: FooterBrandLogo[] = [];
+  if (Array.isArray(obj.footerBrandLogos)) {
+    for (const item of obj.footerBrandLogos.slice(0, 8)) {
+      if (!item || typeof item !== 'object') continue;
+      const entry = item as Record<string, unknown>;
+      const dataUrl = typeof entry.dataUrl === 'string' ? entry.dataUrl.trim() : '';
+      if (
+        !dataUrl ||
+        (!/^data:image\/(png|jpeg|jpg|webp);base64,/i.test(dataUrl) && !dataUrl.startsWith('/src/assets/'))
+      ) {
+        continue;
+      }
+      footerBrandLogos.push({
+        id: typeof entry.id === 'string' && entry.id.trim() ? entry.id.trim().slice(0, 48) : `brand-${footerBrandLogos.length + 1}`,
+        name: typeof entry.name === 'string' ? entry.name.trim().slice(0, 60) : '',
+        dataUrl,
+      });
+    }
+  }
+
   const sanitizedTemplates: CashMemoSettings['templates'] = {};
   if (obj.templates && typeof obj.templates === 'object') {
     const rawTemplates = obj.templates as Record<string, unknown>;
@@ -616,6 +700,13 @@ export function sanitizeCashMemoSettings(raw: unknown): CashMemoSettings {
         'showPaymentMethod',
         'showAmountInWords',
         'showAdvanceAndDue',
+        'showPoAndChallan',
+        'showProductDescription',
+        'showProductBrand',
+        'showProductSize',
+        'showProductColor',
+        'showFooterSlogan',
+        'showFooterBrandLogos',
       ];
       for (const f of boolFields) {
         const b = safeBool(e[f]);
@@ -718,6 +809,7 @@ export function sanitizeCashMemoSettings(raw: unknown): CashMemoSettings {
   return {
     activeTemplateId: activeId,
     thermalPaperWidth,
+    footerBrandLogos,
     templates: sanitizedTemplates,
   };
 }
@@ -727,7 +819,12 @@ export function resolveCashMemoConfig(
   templateId: CashMemoTemplateId | undefined,
   org: Organization,
   lang: Language,
-): { templateId: CashMemoTemplateId; config: CashMemoTemplateCustomization; thermalPaperWidth: ThermalPaperWidth } {
+): {
+  templateId: CashMemoTemplateId;
+  config: CashMemoTemplateCustomization;
+  thermalPaperWidth: ThermalPaperWidth;
+  footerBrandLogos: FooterBrandLogo[];
+} {
   const safeSettings = sanitizeCashMemoSettings(settings);
   const resolvedId = templateId ?? safeSettings.activeTemplateId;
   const defaults = CASH_MEMO_TEMPLATES[resolvedId].defaults;
@@ -754,6 +851,7 @@ export function resolveCashMemoConfig(
     templateId: resolvedId,
     config: merged,
     thermalPaperWidth: safeSettings.thermalPaperWidth,
+    footerBrandLogos: safeSettings.footerBrandLogos ?? [],
   };
 }
 
@@ -927,6 +1025,31 @@ export interface CashMemoRenderOptions {
   paymentMethodLabel?: string;
 }
 
+export function formatDocumentLineSpecs(
+  line: Pick<ComputedInvoiceLine, 'productBrand' | 'productSize' | 'productColor' | 'productDescription'>,
+  config: Pick<
+    CashMemoTemplateCustomization,
+    'showProductDescription' | 'showProductBrand' | 'showProductSize' | 'showProductColor'
+  >,
+  isBn: boolean,
+): string {
+  if (!config.showProductDescription) return '';
+  const parts: string[] = [];
+  if (config.showProductBrand && line.productBrand?.trim()) {
+    parts.push(`${isBn ? 'ব্র্যান্ড' : 'Brand'}: ${line.productBrand.trim()}`);
+  }
+  if (config.showProductSize && line.productSize?.trim()) {
+    parts.push(`${isBn ? 'সাইজ' : 'Size'}: ${line.productSize.trim()}`);
+  }
+  if (config.showProductColor && line.productColor?.trim()) {
+    parts.push(`${isBn ? 'কালার' : 'Color'}: ${line.productColor.trim()}`);
+  }
+  if (line.productDescription?.trim()) {
+    parts.push(line.productDescription.trim());
+  }
+  return parts.join(' · ');
+}
+
 /**
  * Computes line amounts & totals cleanly for either With-Mushak (includeVat=true)
  * or Without-Mushak (includeVat=false) Cash Memo exports.
@@ -939,6 +1062,10 @@ export function computeCashMemoFigures(invoice: Invoice, includeVat: boolean) {
     const displayAmount = includeVat ? Number((line.lineTotal ?? grossWithoutVat + (line.vatAmount || 0)).toFixed(2)) : grossWithoutVat;
     return {
       description: line.description,
+      productBrand: line.productBrand || '',
+      productSize: line.productSize || '',
+      productColor: line.productColor || '',
+      productDescription: line.productDescription || '',
       quantity: qty,
       rate,
       vatRate: Number(line.taxRate || 0),
@@ -962,7 +1089,7 @@ export function renderCashMemoHtml(
   lang: Language,
   options: CashMemoRenderOptions = {},
 ): string {
-  const { templateId, config } = resolveCashMemoConfig(
+  const { templateId, config, footerBrandLogos } = resolveCashMemoConfig(
     options.settings ?? org.cashMemoSettings,
     options.templateId,
     org,
@@ -997,7 +1124,8 @@ export function renderCashMemoHtml(
   const rowPad = tdSize <= 10 ? '5px 8px' : tdSize >= 14 ? '9px 10px' : '7px 9px';
 
   const vatMetaPieces: string[] = [];
-  if (includeVat && config.showBinNumber && org.binNumber) {
+  // BIN number stays visible even when includeVat === false (No-Mushak mode)
+  if (config.showBinNumber && org.binNumber) {
     vatMetaPieces.push(`BIN: ${esc(org.binNumber)}`);
   }
   if (includeVat && config.showMushakRef && invoice.mushakChallanNo) {
@@ -1009,6 +1137,41 @@ export function renderCashMemoHtml(
   const vatMetaBar = vatMetaPieces.length > 0
     ? `<div style="font-size:${vatMetaSize}px;color:#475569;margin-top:4px;font-family:${headerFont};">${vatMetaPieces.join(' &nbsp;·&nbsp; ')}</div>`
     : '';
+
+  const resolvedChallanNo = invoice.challanNumber || invoice.mushakChallanNo || '';
+  const resolvedChallanDate = isBlankStructure
+    ? ''
+    : formatDate(invoice.challanDate || invoice.issueDate, numLang);
+
+  const poChallanBarHtml = config.showPoAndChallan
+    ? `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:4px 10px;margin-bottom:8px;border:1px solid #CBD5E1;background:rgba(248,250,252,0.85);border-radius:4px;font-family:${bodyFont};font-size:${Math.max(9, bSize - 1)}px;color:#1E293B;">
+         <div><strong>P.O No:</strong> <span style="font-family:'IBM Plex Mono',monospace;font-weight:600;">${esc(invoice.poNumber || '—')}</span></div>
+         <div><strong>Challan No:</strong> <span style="font-family:'IBM Plex Mono',monospace;font-weight:600;">${esc(resolvedChallanNo || '—')}</span></div>
+         <div><strong>Challan Date:</strong> <span style="font-weight:600;">${esc(resolvedChallanDate || '—')}</span></div>
+       </div>`
+    : '';
+
+  const footerBrandLogosHtml =
+    config.showFooterBrandLogos && footerBrandLogos.length > 0
+      ? `<div style="margin-top:12px;padding-top:8px;border-top:1px dashed #CBD5E1;display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;">
+           ${footerBrandLogos
+             .map(
+               (logo) => `
+               <div style="display:inline-flex;align-items:center;gap:5px;padding:2px 6px;border:1px solid #E2E8F0;border-radius:6px;background:#FFFFFF;">
+                 <img src="${esc(logo.dataUrl)}" alt="${esc(logo.name || 'Brand')}" style="height:22px;max-width:76px;object-fit:contain;display:block;" />
+                 ${logo.name ? `<span style="font-size:${Math.max(8, fSize - 2)}px;font-weight:600;color:#334155;">${esc(logo.name)}</span>` : ''}
+               </div>`,
+             )
+             .join('')}
+         </div>`
+      : '';
+
+  const footerSloganHtml =
+    config.showFooterSlogan && config.slogan
+      ? `<div style="margin-top:8px;text-align:center;font-family:${footerFont};font-size:${Math.max(9, fSize - 1)}px;font-weight:600;color:#475569;">${esc(config.slogan)}</div>`
+      : '';
+
+  const footerExtrasHtml = `${footerSloganHtml}${footerBrandLogosHtml}`;
 
   const buildStandardRows = (
     borderColor: string,
@@ -1028,16 +1191,20 @@ export function renderCashMemoHtml(
         const slText = opts?.paddedSl
           ? `${String(idx + 1).padStart(2, '0')}.`
           : formatNumber(idx + 1, numLang);
+        const specsText = formatDocumentLineSpecs(item, config, isBanglaDoc);
         return `
           <tr>
-            <td style="${cellStyleBase}padding:${rowPad};border-right:1px solid ${borderColor};border-bottom:${hBorder};text-align:center;font-weight:600;color:#334155;">${esc(slText)}</td>
-            <td style="${cellStyleBase}padding:${rowPad};border-right:1px solid ${borderColor};border-bottom:${hBorder};background:${opts?.descBg || 'transparent'};color:#0F172A;font-weight:500;">
-              ${esc(item.description)}
-              ${includeVat && item.vatRate > 0 ? `<span style="font-size:${Math.max(9, tdSize - 2)}px;color:#64748B;margin-left:4px;">(${isBanglaDoc ? 'মূসক' : 'VAT'} ${esc(formatNumber(item.vatRate, numLang))}%)</span>` : ''}
+            <td style="${cellStyleBase}padding:${rowPad};border-right:1px solid ${borderColor};border-bottom:${hBorder};text-align:center;font-weight:600;color:#334155;vertical-align:top;">${esc(slText)}</td>
+            <td style="${cellStyleBase}padding:${rowPad};border-right:1px solid ${borderColor};border-bottom:${hBorder};background:${opts?.descBg || 'transparent'};color:#0F172A;font-weight:500;vertical-align:top;">
+              <div>
+                ${esc(item.description)}
+                ${includeVat && item.vatRate > 0 ? `<span style="font-size:${Math.max(9, tdSize - 2)}px;color:#64748B;margin-left:4px;">(${isBanglaDoc ? 'মূসক' : 'VAT'} ${esc(formatNumber(item.vatRate, numLang))}%)</span>` : ''}
+              </div>
+              ${specsText ? `<div style="font-size:${Math.max(8, tdSize - 2)}px;color:#475569;font-weight:400;margin-top:2px;">${esc(specsText)}</div>` : ''}
             </td>
-            <td style="${cellStyleBase}padding:${rowPad};border-right:1px solid ${borderColor};border-bottom:${hBorder};background:${opts?.qtyBg || 'transparent'};text-align:center;">${esc(formatNumber(item.quantity, numLang))}</td>
-            <td style="${cellStyleBase}padding:${rowPad};border-right:1px solid ${borderColor};border-bottom:${hBorder};background:${opts?.rateBg || 'transparent'};text-align:right;">${esc(money(item.rate))}</td>
-            <td style="${cellStyleBase}padding:${rowPad};border-bottom:${hBorder};background:${opts?.amtBg || 'transparent'};text-align:right;font-weight:600;color:#0F172A;">${esc(money(item.amount))}</td>
+            <td style="${cellStyleBase}padding:${rowPad};border-right:1px solid ${borderColor};border-bottom:${hBorder};background:${opts?.qtyBg || 'transparent'};text-align:center;vertical-align:top;">${esc(formatNumber(item.quantity, numLang))}</td>
+            <td style="${cellStyleBase}padding:${rowPad};border-right:1px solid ${borderColor};border-bottom:${hBorder};background:${opts?.rateBg || 'transparent'};text-align:right;vertical-align:top;">${esc(money(item.rate))}</td>
+            <td style="${cellStyleBase}padding:${rowPad};border-bottom:${hBorder};background:${opts?.amtBg || 'transparent'};text-align:right;font-weight:600;color:#0F172A;vertical-align:top;">${esc(money(item.amount))}</td>
           </tr>
         `;
       })
@@ -1111,7 +1278,7 @@ export function renderCashMemoHtml(
             </div>
           </div>
 
-          <div style="font-family:${bodyFont};font-size:${bSize}px;margin-bottom:12px;line-height:1.85;">
+          <div style="font-family:${bodyFont};font-size:${bSize}px;margin-bottom:8px;line-height:1.85;">
             <div style="display:flex;justify-content:space-between;gap:16px;">
               <div><strong>${isBanglaDoc ? 'ক্রমিক নং' : 'SL No'} :</strong> <span style="font-family:'IBM Plex Mono',monospace;font-weight:600;">${esc(invoice.invoiceNumber)}</span></div>
               <div><strong>${isBanglaDoc ? 'তারিখ' : 'Date'} :</strong> <span style="border-bottom:1px dotted #64748B;padding:0 12px 1px;">${esc(formatDate(invoice.issueDate, numLang))}</span></div>
@@ -1135,6 +1302,8 @@ export function renderCashMemoHtml(
               </div>
             </div>
           </div>
+
+          ${poChallanBarHtml}
 
           <div style="position:relative;border:1.5px solid ${esc(p)};">
             ${watermarkHtml}
@@ -1188,6 +1357,7 @@ export function renderCashMemoHtml(
               <div style="border-top:1.5px solid #0F172A;padding-top:4px;min-width:130px;text-align:center;">${esc(config.customerSignLabel)}</div>
               <div style="border-top:1.5px solid #0F172A;padding-top:4px;min-width:130px;text-align:center;">${esc(config.authorizedSignLabel)}</div>
             </div>
+            ${footerExtrasHtml}
           </div>
         </div>
         <div style="height:18px;background:linear-gradient(115deg, ${esc(a)} 0%, ${esc(a)} 27%, #FFFFFF 27%, #FFFFFF 31%, ${esc(p)} 31%, ${esc(p)} 100%);"></div>
@@ -1215,6 +1385,7 @@ export function renderCashMemoHtml(
               ${config.showLogo ? safeLogoHtml(org, p, 40) : ''}
               <div style="font-family:${headerFont};font-size:${hTitle}px;font-weight:900;color:#0F172A;letter-spacing:0.01em;line-height:1.15;">${esc(config.businessName)}</div>
             </div>
+            ${config.slogan ? `<div style="font-size:${Math.max(9, hMeta)}px;font-weight:700;color:${esc(a)};margin-top:3px;">${esc(config.slogan)}</div>` : ''}
             <div style="margin-top:6px;font-size:${hMeta}px;font-weight:700;color:${esc(p)};line-height:1.45;">
               <div>${esc(config.address)}</div>
               <div>${esc(config.phone)}${config.email ? ` &nbsp;|&nbsp; ${esc(config.email)}` : ''}</div>
@@ -1244,11 +1415,13 @@ export function renderCashMemoHtml(
               <div style="width:94px;background:${esc(a)};color:#FFFFFF;font-size:${Math.max(9, bSize - 1)}px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:4px 8px;">${isBanglaDoc ? 'নাম:' : 'NAME:'}</div>
               <div style="flex:1;border:1px solid #334155;padding:4px 10px;font-weight:600;">${esc(invoice.customerName)}</div>
             </div>
-            <div style="display:flex;align-items:stretch;gap:4px;margin-bottom:12px;">
+            <div style="display:flex;align-items:stretch;gap:4px;margin-bottom:8px;">
               <div style="width:94px;background:${esc(a)};color:#FFFFFF;font-size:${Math.max(9, bSize - 1)}px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:4px 8px;">${isBanglaDoc ? 'ঠিকানা:' : 'ADDRESS:'}</div>
               <div style="flex:1;border:1px solid #334155;padding:4px 10px;">${esc(invoice.customerAddress || invoice.customerPhone || '—')}</div>
             </div>
           </div>
+
+          ${poChallanBarHtml}
 
           <div style="border:1.5px solid #1E293B;position:relative;">
             ${watermarkHtml}
@@ -1295,6 +1468,7 @@ export function renderCashMemoHtml(
               ${config.footerNote ? `<div style="color:#64748B;font-weight:500;">${esc(config.footerNote)}</div>` : ''}
               <div>${esc(config.authorizedSignLabel)}</div>
             </div>
+            ${footerExtrasHtml}
           </div>
         </div>
 
@@ -1346,11 +1520,13 @@ export function renderCashMemoHtml(
               <div style="width:94px;background:${esc(p)};color:#FFFFFF;font-size:${Math.max(9, bSize - 1)}px;font-weight:700;padding:4px 8px;text-align:center;">${isBanglaDoc ? 'নাম' : 'NAME'}</div>
               <div style="flex:1;padding:4px 10px;font-weight:600;">${esc(invoice.customerName)}</div>
             </div>
-            <div style="display:flex;margin-bottom:12px;border:1px solid ${esc(p)};">
+            <div style="display:flex;margin-bottom:8px;border:1px solid ${esc(p)};">
               <div style="width:94px;background:${esc(p)};color:#FFFFFF;font-size:${Math.max(9, bSize - 1)}px;font-weight:700;padding:4px 8px;text-align:center;">${isBanglaDoc ? 'ঠিকানা' : 'ADDRESS'}</div>
               <div style="flex:1;padding:4px 10px;">${esc(invoice.customerAddress || invoice.customerPhone || '—')}</div>
             </div>
           </div>
+
+          ${poChallanBarHtml}
 
           <div style="border:1.5px solid ${esc(p)};position:relative;">
             ${watermarkHtml}
@@ -1393,6 +1569,7 @@ export function renderCashMemoHtml(
               ${config.footerNote ? `<div style="color:#64748B;font-weight:500;">${esc(config.footerNote)}</div>` : ''}
               <div style="border-top:1px solid #334155;padding-top:4px;min-width:128px;text-align:center;">${esc(config.authorizedSignLabel)}</div>
             </div>
+            ${footerExtrasHtml}
           </div>
         </div>
 
@@ -1423,6 +1600,7 @@ export function renderCashMemoHtml(
             ${config.showLogo ? safeLogoHtml(org, p, 52) : ''}
             <div style="text-align:center;">
               <div style="font-family:${headerFont};font-size:${hTitle}px;font-weight:900;color:${esc(p)};line-height:1.15;letter-spacing:0.01em;">${esc(config.businessName)}</div>
+              ${config.slogan ? `<div style="font-size:${Math.max(10, hMeta)}px;font-weight:700;color:${esc(a)};margin-top:2px;">${esc(config.slogan)}</div>` : ''}
               <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-top:6px;flex-wrap:wrap;">
                 ${config.proprietorLabel ? `<span style="background:${esc(p)};color:#FFFFFF;padding:3px 16px;border-radius:6px;font-size:${hMeta}px;font-weight:700;">${esc(config.proprietorLabel)}</span>` : ''}
                 ${config.phone ? `<span style="background:#FEF08A;border:1px solid #CA8A04;color:#0F172A;padding:3px 12px;border-radius:999px;font-size:${hMeta}px;font-weight:700;">☎ ${esc(config.phone)}</span>` : ''}
@@ -1455,11 +1633,13 @@ export function renderCashMemoHtml(
               <span style="width:68px;background:${esc(p)};color:#FFFFFF;padding:3px 10px;border-radius:4px;font-weight:700;font-size:${Math.max(9, bSize - 1)}px;text-align:center;">নাম</span>
               <span style="flex:1;background:#FEF9C3;border:1px solid #FDE047;border-radius:4px;padding:3px 10px;font-weight:600;">${esc(invoice.customerName)}</span>
             </div>
-            <div style="display:flex;gap:4px;margin-bottom:10px;">
+            <div style="display:flex;gap:4px;margin-bottom:8px;">
               <span style="width:68px;background:${esc(a)};color:#FFFFFF;padding:3px 10px;border-radius:4px;font-weight:700;font-size:${Math.max(9, bSize - 1)}px;text-align:center;">ঠিকানা</span>
               <span style="flex:1;background:#FEF9C3;border:1px solid #FDE047;border-radius:4px;padding:3px 10px;">${esc(invoice.customerAddress || invoice.customerPhone || '—')}</span>
             </div>
           </div>
+
+          ${poChallanBarHtml}
 
           <div style="border:1.5px solid #475569;background:#FFFFFF;position:relative;">
             ${watermarkHtml}
@@ -1510,6 +1690,7 @@ export function renderCashMemoHtml(
               <span>${esc(config.customerSignLabel)}</span>
               <span>${esc(config.authorizedSignLabel)}</span>
             </div>
+            ${footerExtrasHtml}
           </div>
         </div>
         <div style="height:10px;background:linear-gradient(90deg, ${esc(p)}, #F97316, ${esc(p)});"></div>
@@ -1567,11 +1748,13 @@ export function renderCashMemoHtml(
               <div style="width:86px;background:${esc(p)};color:#FFFFFF;font-size:${Math.max(9, bSize - 1)}px;font-weight:700;padding:4px 8px;text-align:center;">${isBanglaDoc ? 'নাম:' : 'Name:'}</div>
               <div style="flex:1;padding:4px 10px;font-weight:600;">${esc(invoice.customerName)}</div>
             </div>
-            <div style="display:flex;margin-bottom:12px;border:1px solid ${esc(p)};">
+            <div style="display:flex;margin-bottom:8px;border:1px solid ${esc(p)};">
               <div style="width:86px;background:${esc(p)};color:#FFFFFF;font-size:${Math.max(9, bSize - 1)}px;font-weight:700;padding:4px 8px;text-align:center;">${isBanglaDoc ? 'ঠিকানা:' : 'Address:'}</div>
               <div style="flex:1;padding:4px 10px;">${esc(invoice.customerAddress || invoice.customerPhone || '—')}</div>
             </div>
           </div>
+
+          ${poChallanBarHtml}
 
           <div style="border:1.5px solid ${esc(p)};position:relative;">
             ${watermarkHtml}
@@ -1619,6 +1802,7 @@ export function renderCashMemoHtml(
             <div style="font-size:${Math.max(12, fSize + 2)}px;font-weight:700;color:${esc(p)};font-style:italic;">${esc(config.footerNote || 'Thank You, Come Again')}</div>
             <div style="border-top:1px solid #64748B;padding-top:4px;min-width:125px;text-align:center;">${esc(config.authorizedSignLabel)}</div>
           </div>
+          ${footerExtrasHtml}
         </div>
         <div style="height:10px;background:linear-gradient(90deg, ${esc(p)}, ${esc(a)}, ${esc(p)});"></div>
       </div>
@@ -1668,11 +1852,13 @@ export function renderCashMemoHtml(
               <div style="width:86px;background:#0F172A;color:#FFFFFF;font-size:${Math.max(9, bSize - 1)}px;font-weight:700;padding:4px 8px;text-align:center;">${isBanglaDoc ? 'নাম:' : 'Name:'}</div>
               <div style="flex:1;padding:4px 10px;font-weight:600;">${esc(invoice.customerName)}</div>
             </div>
-            <div style="display:flex;margin-bottom:12px;border:1px solid #334155;border-radius:4px;overflow:hidden;">
+            <div style="display:flex;margin-bottom:8px;border:1px solid #334155;border-radius:4px;overflow:hidden;">
               <div style="width:86px;background:#0F172A;color:#FFFFFF;font-size:${Math.max(9, bSize - 1)}px;font-weight:700;padding:4px 8px;text-align:center;">${isBanglaDoc ? 'ঠিকানা:' : 'Address:'}</div>
               <div style="flex:1;padding:4px 10px;">${esc(invoice.customerAddress || invoice.customerPhone || '—')}</div>
             </div>
           </div>
+
+          ${poChallanBarHtml}
 
           <div style="border:1.5px solid #475569;position:relative;">
             ${watermarkHtml}
@@ -1723,6 +1909,7 @@ export function renderCashMemoHtml(
               <div style="border-top:1px dotted #475569;padding-top:4px;min-width:125px;text-align:center;">${esc(config.customerSignLabel)}</div>
               <div style="border-top:1px dotted #475569;padding-top:4px;min-width:125px;text-align:center;">${esc(config.authorizedSignLabel)}</div>
             </div>
+            ${footerExtrasHtml}
           </div>
         </div>
         <div style="height:12px;background:linear-gradient(90deg, #F59E0B, ${esc(p)}, ${esc(a)});"></div>
@@ -1748,6 +1935,7 @@ export function renderCashMemoHtml(
           ${config.showLogo ? safeLogoHtml(org, '#F97316', 48) : ''}
           <div style="text-align:center;">
             <div style="font-family:${headerFont};font-size:${hTitle}px;font-weight:900;color:${esc(p)};line-height:1.15;">${esc(config.businessName)}</div>
+            ${config.slogan ? `<div style="font-size:${Math.max(10, hMeta)}px;font-weight:700;color:${esc(a)};margin-top:2px;">${esc(config.slogan)}</div>` : ''}
             ${config.proprietorLabel ? `<div style="display:inline-block;background:${esc(p)};color:#FFFFFF;padding:2px 22px;border-radius:999px;font-size:${hMeta}px;font-weight:700;margin-top:5px;">${esc(config.proprietorLabel)}</div>` : ''}
           </div>
         </div>
@@ -1761,7 +1949,7 @@ export function renderCashMemoHtml(
       </div>
 
       <div style="padding:12px 22px 14px;">
-        <div style="font-family:${bodyFont};font-size:${bSize}px;line-height:1.85;margin-bottom:10px;">
+        <div style="font-family:${bodyFont};font-size:${bSize}px;line-height:1.85;margin-bottom:8px;">
           <div style="display:flex;gap:16px;">
             <div style="flex:1;display:flex;gap:6px;">
               <strong>তারিখঃ</strong>
@@ -1787,6 +1975,8 @@ export function renderCashMemoHtml(
             <span style="flex:1;border-bottom:1px dotted #475569;padding-left:6px;">${esc(invoice.customerAddress || '—')}</span>
           </div>
         </div>
+
+        ${poChallanBarHtml}
 
         <div style="border:1.5px solid ${esc(a)};background:#FFFFFF;position:relative;">
           ${watermarkHtml}
@@ -1831,6 +2021,7 @@ export function renderCashMemoHtml(
         </div>
 
         ${config.showAmountInWords ? `<div style="margin-top:10px;font-family:${footerFont};font-size:${fSize}px;display:flex;gap:6px;"><strong style="white-space:nowrap;">কথায়ঃ</strong><span style="flex:1;border-bottom:1px dotted #475569;padding-left:4px;">${esc(words)}</span></div>` : ''}
+        ${footerExtrasHtml}
       </div>
 
       <div style="display:flex;align-items:stretch;font-family:${footerFont};font-size:${fSize}px;font-weight:700;color:#FFFFFF;margin-top:6px;">
@@ -1877,18 +2068,22 @@ export function renderThermalReceiptHtml(
   const thermalFooterSize = Math.max(8, Math.min(12, config.footerFontSize - 2));
 
   const itemsHtml = figs.items
-    .map(
-      (item) => `
+    .map((item) => {
+      const specsText = formatDocumentLineSpecs(item, config, isBn);
+      return `
       <div style="margin-bottom:5px;font-family:${tableFont};font-size:${thermalItemSize}px;">
         <div style="font-weight:600;word-break:break-word;">${esc(item.description)}</div>
+        ${specsText ? `<div style="font-size:${Math.max(8, thermalItemSize - 2)}px;color:#333;">${esc(specsText)}</div>` : ''}
         <div style="display:flex;justify-content:space-between;font-size:${Math.max(8, thermalItemSize - 1)}px;color:#111;">
           <span>${esc(formatNumber(item.quantity, lang))} × ${esc(money(item.rate))}${includeVat && item.vatRate > 0 ? ` (+${esc(formatNumber(item.vatRate, lang))}% VAT)` : ''}</span>
           <span style="font-weight:700;">${esc(money(item.amount))}</span>
         </div>
       </div>
-    `,
-    )
+    `;
+    })
     .join('');
+
+  const resolvedChallanNo = invoice.challanNumber || invoice.mushakChallanNo || '';
 
   return `<!DOCTYPE html>
 <html lang="${isBn ? 'bn' : 'en'}">
@@ -1916,9 +2111,10 @@ export function renderThermalReceiptHtml(
   <div style="text-align:center;font-family:${headerFont};">
     ${config.showInvocation ? `<div style="font-size:${thermalMetaSize}px;margin-bottom:2px;">${esc(config.invocationText)}</div>` : ''}
     <div style="font-size:${thermalTitleSize}px;font-weight:800;">${esc(config.businessName)}</div>
+    ${config.slogan ? `<div style="font-size:${thermalMetaSize}px;font-weight:600;margin-top:1px;">${esc(config.slogan)}</div>` : ''}
     ${config.address ? `<div style="font-size:${thermalMetaSize}px;margin-top:2px;">${esc(config.address)}</div>` : ''}
     ${config.phone ? `<div style="font-size:${thermalMetaSize}px;">${isBn ? 'ফোন' : 'Tel'}: ${esc(config.phone)}</div>` : ''}
-    ${includeVat && config.showBinNumber && org.binNumber ? `<div style="font-size:${thermalMetaSize}px;font-weight:700;">BIN: ${esc(org.binNumber)}</div>` : ''}
+    ${config.showBinNumber && org.binNumber ? `<div style="font-size:${thermalMetaSize}px;font-weight:700;">BIN: ${esc(org.binNumber)}</div>` : ''}
     <div style="font-size:${Math.max(9, thermalMetaSize + 1)}px;font-weight:700;margin-top:4px;text-transform:uppercase;">${esc(config.memoTitle)}</div>
   </div>
   <div class="hr"></div>
@@ -1926,6 +2122,8 @@ export function renderThermalReceiptHtml(
     <div class="row"><span>${isBn ? 'মেমো নং' : 'Memo'}:</span><strong>${esc(invoice.invoiceNumber)}</strong></div>
     <div class="row"><span>${isBn ? 'তারিখ' : 'Date'}:</span><span>${esc(formatDate(invoice.issueDate, lang))}</span></div>
     <div class="row"><span>${isBn ? 'ক্রেতা' : 'Customer'}:</span><span>${esc(invoice.customerName)}</span></div>
+    ${config.showPoAndChallan && invoice.poNumber ? `<div class="row"><span>P.O No:</span><span>${esc(invoice.poNumber)}</span></div>` : ''}
+    ${config.showPoAndChallan && resolvedChallanNo ? `<div class="row"><span>Challan No:</span><span>${esc(resolvedChallanNo)}</span></div>` : ''}
     ${includeVat && config.showMushakRef && invoice.mushakChallanNo ? `<div class="row"><span>${isBn ? 'মূসক ৬.৩' : 'Mushak 6.3'}:</span><span>${esc(invoice.mushakChallanNo)}</span></div>` : ''}
   </div>
   <div class="hr"></div>
@@ -1944,6 +2142,7 @@ export function renderThermalReceiptHtml(
   <div class="hr"></div>
   <div style="text-align:center;font-family:${footerFont};font-size:${thermalFooterSize}px;">
     <div>${esc(config.footerNote || (isBn ? 'ধন্যবাদ · আবার আসবেন' : 'Thank you · Come again'))}</div>
+    ${config.showFooterSlogan && config.slogan ? `<div style="margin-top:2px;font-weight:600;">${esc(config.slogan)}</div>` : ''}
     <div style="margin-top:2px;">${includeVat ? (isBn ? 'মূসক সহ রসিদ' : 'VAT Inclusive Receipt') : (isBn ? 'ক্যাশ মেমো (মূসক ছাড়া)' : 'Cash Memo (No VAT)')}</div>
   </div>
 </body>

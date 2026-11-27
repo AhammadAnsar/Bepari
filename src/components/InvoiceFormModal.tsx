@@ -60,6 +60,11 @@ export function InvoiceFormModal({
     d.setDate(d.getDate() + 14);
     return d.toISOString().slice(0, 10);
   });
+  const [poNumber, setPoNumber] = useState<string>(editingInvoice?.poNumber || '');
+  const [challanNumber, setChallanNumber] = useState<string>(editingInvoice?.challanNumber || '');
+  const [challanDate, setChallanDate] = useState<string>(
+    editingInvoice?.challanDate || editingInvoice?.issueDate || todayISO()
+  );
   const [notes, setNotes] = useState(editingInvoice?.notes || '');
   const [lines, setLines] = useState<InvoiceLineInput[]>(() => {
     if (editingInvoice?.items && editingInvoice.items.length > 0) {
@@ -185,6 +190,9 @@ export function InvoiceFormModal({
               customerId,
               issueDate,
               dueDate,
+              poNumber: poNumber.trim(),
+              challanNumber: challanNumber.trim(),
+              challanDate: challanDate || issueDate,
               notes,
               items: cleanLines,
             },
@@ -197,6 +205,9 @@ export function InvoiceFormModal({
               customerId,
               issueDate,
               dueDate,
+              poNumber: poNumber.trim(),
+              challanNumber: challanNumber.trim(),
+              challanDate: challanDate || issueDate,
               notes,
               items: cleanLines,
             },
@@ -331,19 +342,58 @@ export function InvoiceFormModal({
                 className="w-full h-10 px-3 text-sm font-mono bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0F766E]/25 focus:border-[#0F766E]"
               />
             </div>
-            <div className="sm:col-span-3">
-              <label htmlFor="inv-notes" className="block text-xs font-medium text-slate-700 mb-1">
-                {isBn ? 'নোট / ডেলিভারি বিবরণ' : 'Notes / Delivery Terms'}
+            <div>
+              <label htmlFor="inv-po" className="block text-xs font-medium text-slate-700 mb-1">
+                {isBn ? 'P.O No (ঐচ্ছিক)' : 'P.O No'}
               </label>
               <input
-                id="inv-notes"
+                id="inv-po"
                 type="text"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder={isBn ? 'যেমন: ৭ দিনের মধ্যে পরিশোধযোগ্য' : 'e.g. Net 14 days, Gulshan dispatch'}
-                className="w-full h-10 px-3 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0F766E]/25 focus:border-[#0F766E]"
+                value={poNumber}
+                onChange={(e) => setPoNumber(e.target.value)}
+                placeholder="PO-2026-001"
+                className="w-full h-10 px-3 text-sm font-mono bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0F766E]/25 focus:border-[#0F766E]"
               />
             </div>
+            <div>
+              <label htmlFor="inv-challan" className="block text-xs font-medium text-slate-700 mb-1">
+                {isBn ? 'Challan No (খালি রাখলে অটো)' : 'Challan No (Auto if blank)'}
+              </label>
+              <input
+                id="inv-challan"
+                type="text"
+                value={challanNumber}
+                onChange={(e) => setChallanNumber(e.target.value)}
+                placeholder={isBn ? 'স্বয়ংক্রিয় চালান নং' : 'Auto Challan No'}
+                className="w-full h-10 px-3 text-sm font-mono bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0F766E]/25 focus:border-[#0F766E]"
+              />
+            </div>
+            <div>
+              <label htmlFor="inv-challan-date" className="block text-xs font-medium text-slate-700 mb-1">
+                {isBn ? 'Challan Date (চালান তারিখ)' : 'Challan Date'}
+              </label>
+              <input
+                id="inv-challan-date"
+                type="date"
+                value={challanDate}
+                onChange={(e) => setChallanDate(e.target.value)}
+                className="w-full h-10 px-3 text-sm font-mono bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0F766E]/25 focus:border-[#0F766E]"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label htmlFor="inv-notes" className="block text-xs font-medium text-slate-700 mb-1">
+              {isBn ? 'নোট / ডেলিভারি বিবরণ' : 'Notes / Delivery Terms'}
+            </label>
+            <input
+              id="inv-notes"
+              type="text"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder={isBn ? 'যেমন: ৭ দিনের মধ্যে পরিশোধযোগ্য' : 'e.g. Net 14 days, Gulshan dispatch'}
+              className="w-full h-10 px-3 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0F766E]/25 focus:border-[#0F766E]"
+            />
           </div>
 
           {/* Line Items */}

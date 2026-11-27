@@ -16,6 +16,7 @@ import type {
   Payment,
   PaymentMethod,
   Purchase,
+  Quotation,
   RecurringFrequency,
   StatementRow,
 } from '../../engine/types.ts';
@@ -24,6 +25,7 @@ import type { DbClient } from '../dbClient.ts';
 import {
   getInvoiceById,
   getOrganization,
+  getQuotationById,
   listCustomersWithBalances,
   nextSequence,
   paymentMethodToAccountCode,
@@ -194,6 +196,10 @@ export async function createInvoiceTransaction(
     customerId: number;
     issueDate: string;
     dueDate: string;
+    poNumber?: string;
+    challanNumber?: string;
+    challanDate?: string;
+    quotationId?: number | null;
     notes?: string;
     source?: 'invoice' | 'pos' | 'recurring';
     items: InvoiceLineInput[];
@@ -236,6 +242,12 @@ export async function createInvoiceTransaction(
     const year = Number(input.issueDate.slice(0, 4)) || new Date().getFullYear();
     const invoiceNumber = `${org.invoicePrefix}-${branch.code}-${year}-${String(seq).padStart(5, '0')}`;
     const mushakChallanNo = formatMushakChallanNo(org.mushakPrefix, branch.code, seq, year);
+    const poNumber = String(input.poNumber || '').trim();
+    const challanNumber =
+      String(input.challanNumber || '').trim() ||
+      `${org.challanPrefix || 'CHL'}-${branch.code}-${year}-${String(seq).padStart(5, '0')}`;
+    const challanDate = String(input.challanDate || input.issueDate || '').trim();
+    const quotationId = input.quotationId ? Number(input.quotationId) : null;
 
     const status = resolveInvoiceStatus({
       grandTotal: computed.grandTotal,
@@ -246,13 +258,18 @@ export async function createInvoiceTransaction(
 
     const invInfo = await tx.run(
       `INSERT INTO invoices (
-        invoice_number, mushak_challan_no, branch_id, customer_id,
+        invoice_number, mushak_challan_no, po_number, challan_number, challan_date, quotation_id,
+        branch_id, customer_id,
         issue_date, due_date, status, source,
         subtotal, discount_total, sd_total, vat_total, grand_total, paid_amount, notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
       [
         invoiceNumber,
         mushakChallanNo,
+        poNumber,
+        challanNumber,
+        challanDate,
+        quotationId,
         input.branchId,
         input.customerId,
         input.issueDate,
@@ -269,6 +286,12 @@ export async function createInvoiceTransaction(
     );
 
     const invoiceId = Number(invInfo.lastInsertRowid);
+    if (quotationId) {
+      await tx.run(
+        `UPDATE quotations SET status = 'converted', converted_invoice_id = ? WHERE id = ?`,
+        [invoiceId, quotationId]
+      );
+    }
     let totalCogs = 0;
 
     for (const line of computed.lines) {
@@ -992,6 +1015,9 @@ export async function updateInvoiceTransaction(
     customerId: number;
     issueDate: string;
     dueDate: string;
+    poNumber?: string;
+    challanNumber?: string;
+    challanDate?: string;
     notes?: string;
     items: InvoiceLineInput[];
   },
@@ -1166,7 +1192,8 @@ export async function updateInvoiceTransaction(
     });
     await tx.run(
       `UPDATE invoices SET
-        branch_id = ?, customer_id = ?, issue_date = ?, due_date = ?, status = ?,
+        branch_id = ?, customer_id = ?, issue_date = ?, due_date = ?,
+        po_number = ?, challan_number = ?, challan_date = ?, status = ?,
         subtotal = ?, discount_total = ?, sd_total = ?, vat_total = ?, grand_total = ?,
         notes = ?, journal_entry_id = ?
        WHERE id = ?`,
@@ -1175,6 +1202,13 @@ export async function updateInvoiceTransaction(
         input.customerId,
         input.issueDate,
         input.dueDate,
+        input.poNumber !== undefined ? String(input.poNumber).trim() : String(existing.po_number || ''),
+        input.challanNumber !== undefined && String(input.challanNumber).trim()
+          ? String(input.challanNumber).trim()
+          : String(existing.challan_number || ''),
+        input.challanDate !== undefined && String(input.challanDate).trim()
+          ? String(input.challanDate).trim()
+          : String(existing.challan_date || input.issueDate),
         nextStatus,
         computed.subtotal,
         computed.discountTotal,
@@ -1883,3 +1917,291 @@ export async function deleteRecurringProfile(
     return { deletedId: id };
   });
 }
+
+// ---------------- Quotations ----------------
+
+export async function createQuotationTransaction(
+  db: DbClient,
+  input: {
+    branchId: number;
+    customerId: number;
+    issueDate: string;
+    validUntil: string;
+    poNumber?: string;
+    status?: Quotation['status'];
+    notes?: string;
+    items: InvoiceLineInput[];
+  },
+  actor: ActorContext
+): Promise<Quotation> {
+  if (!input.items || input.items.length === 0) {
+    throw new Error('Quotation must include at least one line item.');
+  }
+
+  return db.transaction(async (tx) => {
+    const org = await getOrganization(tx);
+    const branch = await tx.get<{ id: number; code: string; name: string }>(
+      'SELECT * FROM branches WHERE id = ?',
+      [input.branchId]
+    );
+    if (!branch) throw new Error('Selected branch does not exist.');
+
+    const customer = await tx.get<{ id: number; name: string }>(
+      'SELECT * FROM customers WHERE id = ?',
+      [input.customerId]
+    );
+    if (!customer) throw new Error('Selected customer does not exist.');
+
+    const computed = computeInvoiceTotals(input.items, org.vatMode);
+    const seq = await nextSequence(tx, 'quotations');
+    const year = Number(input.issueDate.slice(0, 4)) || new Date().getFullYear();
+    const quotationNumber = `${org.quotationPrefix || 'QTN'}-${branch.code}-${year}-${String(seq).padStart(5, '0')}`;
+    const validUntil = input.validUntil || input.issueDate;
+    const status: Quotation['status'] = input.status || 'sent';
+
+    const info = await tx.run(
+      `INSERT INTO quotations (
+        quotation_number, branch_id, customer_id, issue_date, valid_until, po_number, status,
+        subtotal, discount_total, sd_total, vat_total, grand_total, notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        quotationNumber,
+        input.branchId,
+        input.customerId,
+        input.issueDate,
+        validUntil,
+        String(input.poNumber || '').trim(),
+        status,
+        computed.subtotal,
+        computed.discountTotal,
+        computed.sdTotal,
+        computed.vatTotal,
+        computed.grandTotal,
+        String(input.notes || '').trim(),
+      ]
+    );
+
+    const quotationId = Number(info.lastInsertRowid);
+    for (const line of computed.lines) {
+      await tx.run(
+        `INSERT INTO quotation_items (
+          quotation_id, product_id, description, quantity, unit_price, discount_amount,
+          tax_rule_id, tax_rate, sd_rate, taxable_value, sd_amount, vat_amount, line_total
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          quotationId,
+          line.productId ?? null,
+          line.description,
+          line.quantity,
+          line.unitPrice,
+          line.discountAmount,
+          line.taxRuleId ?? null,
+          line.taxRate,
+          line.sdRate,
+          line.taxableValue,
+          line.sdAmount,
+          line.vatAmount,
+          line.lineTotal,
+        ]
+      );
+    }
+
+    await writeAuditLog(
+      tx,
+      actor,
+      'QUOTATION_CREATED',
+      'quotation',
+      quotationId,
+      `Created quotation ${quotationNumber} for ${customer.name}: Total ${computed.grandTotal}`
+    );
+
+    return (await getQuotationById(tx, quotationId))!;
+  });
+}
+
+export async function updateQuotationTransaction(
+  db: DbClient,
+  quotationId: number,
+  input: {
+    branchId: number;
+    customerId: number;
+    issueDate: string;
+    validUntil: string;
+    poNumber?: string;
+    status?: Quotation['status'];
+    notes?: string;
+    items: InvoiceLineInput[];
+  },
+  actor: ActorContext
+): Promise<Quotation> {
+  if (!input.items || input.items.length === 0) {
+    throw new Error('Quotation must include at least one line item.');
+  }
+
+  return db.transaction(async (tx) => {
+    const existing = await tx.get<Record<string, unknown>>(
+      'SELECT * FROM quotations WHERE id = ?',
+      [quotationId]
+    );
+    if (!existing) throw new Error('Quotation not found.');
+
+    const customer = await tx.get<{ id: number; name: string }>(
+      'SELECT id, name FROM customers WHERE id = ?',
+      [input.customerId]
+    );
+    if (!customer) throw new Error('Customer not found.');
+
+    const org = await getOrganization(tx);
+    const computed = computeInvoiceTotals(input.items, org.vatMode);
+    const quotationNumber = String(existing.quotation_number);
+
+    await tx.run('DELETE FROM quotation_items WHERE quotation_id = ?', [quotationId]);
+    for (const line of computed.lines) {
+      await tx.run(
+        `INSERT INTO quotation_items (
+          quotation_id, product_id, description, quantity, unit_price, discount_amount,
+          tax_rule_id, tax_rate, sd_rate, taxable_value, sd_amount, vat_amount, line_total
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          quotationId,
+          line.productId ?? null,
+          line.description,
+          line.quantity,
+          line.unitPrice,
+          line.discountAmount,
+          line.taxRuleId ?? null,
+          line.taxRate,
+          line.sdRate,
+          line.taxableValue,
+          line.sdAmount,
+          line.vatAmount,
+          line.lineTotal,
+        ]
+      );
+    }
+
+    const nextStatus: Quotation['status'] =
+      existing.status === 'converted'
+        ? 'converted'
+        : input.status || (existing.status as Quotation['status']) || 'sent';
+
+    await tx.run(
+      `UPDATE quotations SET
+        branch_id = ?, customer_id = ?, issue_date = ?, valid_until = ?, po_number = ?, status = ?,
+        subtotal = ?, discount_total = ?, sd_total = ?, vat_total = ?, grand_total = ?, notes = ?
+       WHERE id = ?`,
+      [
+        input.branchId,
+        input.customerId,
+        input.issueDate,
+        input.validUntil || input.issueDate,
+        String(input.poNumber ?? existing.po_number ?? '').trim(),
+        nextStatus,
+        computed.subtotal,
+        computed.discountTotal,
+        computed.sdTotal,
+        computed.vatTotal,
+        computed.grandTotal,
+        String(input.notes ?? '').trim(),
+        quotationId,
+      ]
+    );
+
+    await writeAuditLog(
+      tx,
+      actor,
+      'QUOTATION_UPDATED',
+      'quotation',
+      quotationId,
+      `Updated quotation ${quotationNumber} for ${customer.name} (total ${computed.grandTotal})`
+    );
+
+    return (await getQuotationById(tx, quotationId))!;
+  });
+}
+
+export async function deleteQuotationTransaction(
+  db: DbClient,
+  quotationId: number,
+  actor: ActorContext
+): Promise<{ deletedId: number }> {
+  return db.transaction(async (tx) => {
+    const existing = await tx.get<{ id: number; quotation_number: string }>(
+      'SELECT id, quotation_number FROM quotations WHERE id = ?',
+      [quotationId]
+    );
+    if (!existing) throw new Error('Quotation not found.');
+
+    await tx.run('DELETE FROM quotation_items WHERE quotation_id = ?', [quotationId]);
+    await tx.run('DELETE FROM quotations WHERE id = ?', [quotationId]);
+    await writeAuditLog(
+      tx,
+      actor,
+      'QUOTATION_DELETED',
+      'quotation',
+      quotationId,
+      `Deleted quotation ${existing.quotation_number}`
+    );
+    return { deletedId: quotationId };
+  });
+}
+
+export async function convertQuotationToInvoiceTransaction(
+  db: DbClient,
+  quotationId: number,
+  options: {
+    issueDate?: string;
+    dueDate?: string;
+    poNumber?: string;
+    challanNumber?: string;
+    challanDate?: string;
+    immediatePayment?: {
+      amount: number;
+      method: PaymentMethod;
+      gatewayProvider?: string | null;
+      gatewayReference?: string | null;
+    };
+  },
+  actor: ActorContext
+): Promise<Invoice> {
+  const quotation = await getQuotationById(db, quotationId);
+  if (!quotation) throw new Error('Quotation not found.');
+  if (!quotation.items || quotation.items.length === 0) {
+    throw new Error('Quotation has no line items to convert.');
+  }
+
+  const issueDate = options.issueDate || todayISO();
+  const dueDate = options.dueDate || quotation.validUntil || issueDate;
+  const lineInputs: InvoiceLineInput[] = quotation.items.map((item) => ({
+    productId: item.productId,
+    description: item.description,
+    quantity: item.quantity,
+    unitPrice: item.unitPrice,
+    discountAmount: item.discountAmount,
+    taxRuleId: item.taxRuleId,
+    taxRate: item.taxRate,
+    sdRate: item.sdRate,
+  }));
+
+  return createInvoiceTransaction(
+    db,
+    {
+      branchId: quotation.branchId,
+      customerId: quotation.customerId,
+      issueDate,
+      dueDate,
+      poNumber: options.poNumber ?? quotation.poNumber ?? '',
+      challanNumber: options.challanNumber,
+      challanDate: options.challanDate || issueDate,
+      quotationId: quotation.id,
+      notes: quotation.notes
+        ? `${quotation.notes} (Ref: ${quotation.quotationNumber})`
+        : `Converted from Quotation ${quotation.quotationNumber}`,
+      source: 'invoice',
+      items: lineInputs,
+      immediatePayment: options.immediatePayment,
+    },
+    actor
+  );
+}
+

@@ -1,102 +1,162 @@
-# On-Device SQLite Database First, Optional Cloud D1 & npm Lockfile Fix
+# বেপারী (Bepari) — স্থায়ী সেশন ও সেটিংস সিঙ্ক, কোটেশন মডিউল, ডেলিভারি চালান, বাল্ক ইমপোর্ট এবং প্রিন্ট কাস্টমাইজেশন
 
-Updates the deployment architecture so **Bepari runs 100% on the user's device with a real relational SQLite database (`sql.js` WebAssembly + `IndexedDB` persistence)** out of the box when deployed via GitHub -> Cloudflare Pages—eliminating the `405` error completely with zero required cloud database setup—while preserving a seamless opt-in path to connect **Cloudflare D1** or a Node.js backend whenever a client requests cloud sync, and fixing the GitHub Actions lockfile error with `package-lock.json`.
+এই আপডেটে একই ডিভাইসে বারবার লগইন ও সেটিংস হারানোর সমস্যা স্থায়ীভাবে সমাধান করা হচ্ছে এবং ব্যবসার দৈনন্দিন ওয়ার্কফ্লোর জন্য পূর্ণাঙ্গ কোটেশন মডিউল (কোটেশন থেকে ইনভয়েস কনভার্টসহ), ওয়ান-ক্লিক ডেলিভারি চালান, প্রোডাক্ট ও কাস্টমার বাল্ক ইমপোর্ট, আলাদা সিস্টেম ও ডকুমেন্ট ভাষা, এবং ইনভয়েস/মেমোতে P.O No, Challan No, Challan Date, ফুটার ব্র্যান্ডস লোগো ও প্রোডাক্ট অ্যাট্রিবিউট (ব্র্যান্ড, সাইজ, কালার) নিয়ন্ত্রণের সুবিধা যুক্ত করা হচ্ছে।
 
-## User Review & Critical Decisions
+### User Review & Critical Decisions
 
 > [!IMPORTANT]
-> **Revised Architecture Alignment**:
-> - **Device-First Real Database (Default on Cloudflare Pages)**: Every user/client opening the deployed Cloudflare Pages app runs a real 21-table SQLite database directly on their own device (`sql.js` WASM persisted to browser `IndexedDB`), starting cleanly at the 2-step **Owner Account & Organization Onboarding Wizard** with zero dummy data and zero network `405` errors.
-> - **Opt-In Cloud Database Later (No Rewrite Required)**: Built-in **Cloudflare Pages Functions + D1** support stays ready inside the same shared router; whenever a client chooses cloud multi-device sync and binds a Cloudflare D1 (`DB`) database, the app automatically switches from `on-device` SQLite to `cloud-d1` without changing UI or accounting logic.
-> - **GitHub Actions & npm Lockfile**: Replacing `bun.lock` with a committed `package-lock.json` resolves `actions/setup-node@v4` lockfile errors and standardizes builds on `npm`.
+> আপনার নিশ্চিতকৃত সিদ্ধান্ত অনুযায়ী নিচের আর্কিটেকচার ও ওয়ার্কফ্লো চূড়ান্ত করা হয়েছে:
+
+- **সিদ্ধান্ত ১ — আলাদা মূল মেনু হিসেবে কোটেশন মডিউল**: সাইডবার ও মোবাইল নেভিগেশনে **কোটেশন (Quotations)** একটি স্বতন্ত্র মূল মেনু হিসেবে থাকবে, যেখান থেকে নতুন কোটেশন তৈরি, প্রিন্ট/PDF ডাউনলোড এবং এক ক্লিকে ইনভয়েস বা ক্যাশ মেমোতে রূপান্তর করা যাবে।
+- **সিদ্ধান্ত ২ — ওয়ান-ক্লিক ডেলিভারি চালান**: বিক্রয় বা ক্যাশ মেমো সম্পন্ন হওয়ার পর মেমো প্রিভিউ এবং সেলস/ইনভয়েস লিস্টে **ডেলিভারি চালান (Delivery Challan)** বাটন থাকবে, যা ক্লিক করলেই দর/টাকার কলাম ছাড়া শুধুমাত্র পণ্যের বিবরণ, পরিমাণ, P.O No, Challan No ও Challan Date-সহ প্রিন্টযোগ্য ডেলিভারি চালান তৈরি হবে।
+- **সিদ্ধান্ত ৩ — ফুটারে একাধিক ব্র্যান্ড লোগো ও সারিবদ্ধ প্রদর্শন**: সেটিংস ও ক্যাশ মেমো কাস্টমাইজারে একাধিক অনুমোদিত বা পার্টনার ব্র্যান্ডের লোগো আপলোড ও ব্যবস্থাপনার সুবিধা থাকবে, যা ইনভয়েস ও ক্যাশ মেমোর ফুটারে স্লোগান ও ফুটার ডেসক্রিপশনের সাথে পরিচ্ছন্ন সারিতে প্রদর্শিত হবে।
+- **সিদ্ধান্ত ৪ — CSV আপলোড, স্যাম্পল টেমপ্লেট ও এক্সেল কপি-পেস্ট বাল্ক ইমপোর্ট**: প্রোডাক্ট এবং কাস্টমার ডিরেক্টরিতে বাল্ক ইমপোর্ট মোডালে স্যাম্পল CSV ডাউনলোড, CSV ফাইল আপলোড এবং সরাসরি Excel/Google Sheets থেকে রো কপি-পেস্ট করে লাইভ প্রিভিউ ও ভ্যালিডেশনসহ ডাটাবেজে এক ক্লিকে ইমপোর্ট করা যাবে।
 
 ---
 
-## 1. Overview & Core Concept
+### 1. Overview & Core Concept
 
 - **What It Does**:
-  1. **Fixes GitHub Actions Build Error**: Commits a valid `package-lock.json` (and removes `bun.lock`) so `actions/setup-node@v4` (`cache: 'npm'`) and `npm ci` pass reliably on GitHub and Cloudflare Pages.
-  2. **Fixes Cloudflare `Request failed (405)` Permanently**: Replaces blind `POST /api/...` bootstrap calls with a safe `GET /api/runtime` check and routes API calls to the **On-Device SQLite WASM Engine** whenever no cloud backend is attached.
-  3. **Full Real Database on Device + Portable Backups**: All customers, products, POS sales, invoices, Mushak 6.3 challans, double-entry journals, cash memo templates, and authentication run real SQLite queries on the device and persist across reloads/offline restarts in `IndexedDB` (with `.sqlite` database backup export/restore support in Settings).
-- **Target Audience / Persona**: Shop owners, wholesalers, and SMEs using Bepari from desktop or mobile browsers—ready immediately after deploying on Cloudflare Pages without needing cloud database provisioning unless they opt into cloud sync later.
+  1. **ডিভাইসে স্থায়ী লগইন ও সেটিংস সিঙ্ক (Persistent Device Session & Settings)**: ইউজার একবার লগইন করলে তার সেশন টোকেন ডিভাইসে নিরাপদভাবে সংরক্ষিত থাকবে এবং SQLite ডাটাবেজের `sessions` টেবিল থেকে স্বয়ংক্রিয়ভাবে ভেরিফাই হয়ে সরাসরি ওয়ার্কস্পেস লোড হবে (যতক্ষণ না ইউজার নিজে সাইন আউট করেন)। ভাষা পরিবর্তন বা যেকোনো ইনভয়েস/মেমো সেটিংস পরিবর্তনের সাথে সাথে তা SQLite ডাটাবেজ ও IndexedDB স্ন্যাপশটে স্থায়ীভাবে সেভ হবে।
+  2. **মূসক ছাড়া মেমো/ইনভয়েসে BIN নম্বর অক্ষুণ্ণ রাখা**: "মূসক ছাড়া (No Mushak)" মোডে ক্যাশ মেমো বা ইনভয়েস তৈরি ও ডাউনলোড করলে হেডারে প্রতিষ্ঠানের **BIN নম্বর** মুছে যাবে না; শুধুমাত্র মেমোর ভেতরের ভ্যাট/মূসকের সারি ও ট্যাক্স ব্রেকডাউন বাদ যাবে।
+  3. **P.O No, Challan No ও Challan Date**: ইনভয়েস, ক্যাশ মেমো এবং ডেলিভারি চালানে `P.O No`, `Challan No` এবং `Challan Date` ইনপুট ও প্রিন্ট হেডারে সুনির্দিষ্টভাবে প্রদর্শিত হবে।
+  4. **আলাদা সিস্টেম ভাষা ও ডকুমেন্ট ভাষা**: ইউজার চাইলে অ্যাপের ইন্টারফেস (সিস্টেম ভাষা) বাংলায় রেখে ইনভয়েস, ক্যাশ মেমো, কোটেশন, চালান ও স্টেটমেন্ট ইংরেজিতে (অথবা বিপরীতভাবে) প্রিন্ট ও ডাউনলোড করার জন্য আলাদাভাবে ডিফল্ট ডকুমেন্ট ভাষা নির্ধারণ করতে পারবেন।
+  5. **প্রোডাক্ট ডেসক্রিপশন ও অ্যাট্রিবিউট কন্ট্রোল (ব্র্যান্ড, সাইজ, কালার)**: প্রোডাক্টে `Brand`, `Size`, `Color` ও `Description` সংরক্ষণের সুবিধা থাকবে এবং সেটিংস থেকে নিয়ন্ত্রণ করা যাবে মেমো/ইনভয়েসের লাইন আইটেমে প্রোডাক্টের নামের নিচে ডেসক্রিপশন, ব্র্যান্ড, সাইজ ও কালার দেখানো হবে কি না।
+  6. **ফুটারে বিজনেস স্লোগান, ফুটার ডেসক্রিপশন ও ব্র্যান্ডস লোগো**: প্রতি ইনভয়েস ও ক্যাশ মেমোর ফুটারে স্লোগান, ফুটার নোট/ডেসক্রিপশন এবং সারিবদ্ধ ব্র্যান্ড লোগো স্ট্রিপ দেখানোর অপশন থাকবে।
+  7. **স্বতন্ত্র কোটেশন মডিউল ও ইনভয়েস কনভার্সন**: মূল নেভিগেশনে কোটেশন সেকশন থেকে কাস্টমারের জন্য কোটেশন তৈরি, মেয়াদ (Valid Until), শর্তাবলি ও প্রিন্ট প্রিভিউ এবং এক ক্লিকে কোটেশনটিকে আসল ইনভয়েস ও স্টক ডিডাকশনে কনভার্ট করার সুবিধা।
+  8. **ওয়ান-ক্লিক ডেলিভারি চালান**: যেকোনো সম্পন্ন ক্যাশ মেমো বা ইনভয়েস থেকে এক ক্লিকে ডেলিভারি চালান প্রিভিউ, প্রিন্ট ও PDF ডাউনলোড।
+  9. **প্রোডাক্ট ও কাস্টমার বাল্ক ইমপোর্ট**: CSV ফাইল বা এক্সেল কপি-পেস্টের মাধ্যমে একসাথে বহু প্রোডাক্ট (প্রারম্ভিক স্টক, ব্র্যান্ড, সাইজ, কালারসহ) এবং কাস্টমার (ওপেনিং ব্যালেন্সসহ) ইমপোর্ট।
+
+- **Target Audience / Persona**: বাংলাদেশের খুচরা, পাইকারি, ডিস্ট্রিবিউশন ও কর্পোরেট সাপ্লাই ব্যবসায়ী যারা একই সাথে দ্রুত ক্যাশ মেমো, কর্পোরেট কোটেশন, P.O/Challan ভিত্তিক ডেলিভারি চালান এবং NBR মূসক ব্যবস্থাপনা ব্যবহার করেন।
+- **Key Value**: প্রতিবার লগইন বা সেটিংস রিসেট হওয়ার বিড়ম্বনা দূর করে কোটেশন থেকে শুরু করে ইনভয়েস, ক্যাশ মেমো ও ডেলিভারি চালান পর্যন্ত পুরো সেলস সাইকেলকে এক জায়গায় নিখুঁতভাবে সম্পন্ন করা।
 
 ---
 
-## 2. User Experience & Visual Design
+### 2. User Experience & Visual Design
 
-- **Zero-Friction Startup on Cloudflare Pages**: Opening the deployed site lands directly on Step 1 of the 2-step **Owner & Organization Onboarding Wizard** backed by the on-device SQLite database—no `405` errors, no `DB` setup blockers, and no pre-seeded dummy data.
-- **Clear Storage Mode Visibility & Data Safety**:
-  - In **Settings -> Security & Backup**, users can see the active database mode (`On-Device SQLite` vs `Cloud D1` vs `Server SQLite`) and export or import a complete `.sqlite` database backup file anytime so device data is portable and safe.
-- **Content-Type Guard on Network Requests**: Any probe to `/api/runtime` verifies `application/json` content-type so static HTML fallback pages on edge hosts can never trigger false API requests or `405` errors.
+- **Key User Flows**:
+  1. **অটো-রিজিউম সেশন ও ভাষা সিঙ্ক ফ্লো**: ইউজার অ্যাপ ওপেন বা রিলোড করলেই সংরক্ষিত সেশন টোকেন দিয়ে `/api/auth/session` যাচাই হয়ে সরাসরি ড্যাশবোর্ডে প্রবেশ করবে এবং ডাটাবেজে সংরক্ষিত `defaultLanguage` (সিস্টেম ভাষা) ও `documentLanguage` (মেমো/ইনভয়েস ভাষা) স্বয়ংক্রিয়ভাবে লোড হবে। হেডার থেকে ভাষা পরিবর্তন করলে তা সাথে সাথে ডাটাবেজেও আপডেট হবে।
+  2. **কোটেশন তৈরি ও ইনভয়েসে রূপান্তর ফ্লো**: সাইডবার থেকে **কোটেশন** মেনুতে গিয়ে "নতুন কোটেশন" বাটনে ক্লিক করে কাস্টমার, প্রোডাক্ট, বৈধতার তারিখ (Valid Until) ও নোট দিয়ে সেভ করা যাবে। কোটেশন তালিকা বা প্রিভিউ থেকে **"ইনভয়েসে কনভার্ট করুন (Convert to Invoice)"** বাটনে ক্লিক করলে স্বয়ংক্রিয়ভাবে ইনভয়েস ও চালান নম্বর জেনারেট হয়ে ডাবল-এন্ট্রি জার্নাল ও স্টক সমন্বয়সহ ইনভয়েস তৈরি হবে এবং কোটেশনটির স্ট্যাটাস `Converted` হয়ে যাবে।
+  3. **ক্যাশ মেমো/ইনভয়েস থেকে ডেলিভারি চালান ফ্লো**: POS কাউন্টারে ক্যাশ সম্পন্ন করার পর অথবা সেলস লিস্ট ও মেমো প্রিভিউ মোডালের টুলবারে থাকা **"ডেলিভারি চালান"** বাটনে ক্লিক করলে ওই মেমোর `Challan No`, `Challan Date`, `P.O No` এবং পণ্যের বিবরণ (নির্বাচিত ব্র্যান্ড/সাইজ/কালারসহ) ও পরিমাণ নিয়ে তাৎক্ষণিক ডেলিভারি চালান প্রিভিউ ও PDF/প্রিন্ট ওপেন হবে।
+  4. **প্রোডাক্ট ও কাস্টমার বাল্ক ইমপোর্ট ফ্লো**: প্রোডাক্ট বা কাস্টমার পেজের হেডারে থাকা **"বাল্ক ইমপোর্ট"** বাটনে ক্লিক করলে একটি পরিচ্ছন্ন মোডাল ওপেন হবে। সেখানে ১) স্যাম্পল CSV ডাউনলোড, ২) CSV ফাইল ড্রপ/সিলেক্ট অথবা ৩) এক্সেল থেকে সরাসরি কপি-পেস্ট করার টেক্সটবক্স থাকবে। ডাটা দেওয়ার সাথে সাথে টেবিল প্রিভিউতে বৈধ ও ত্রুটিপূর্ণ সারি দেখাবে এবং "ইমপোর্ট নিশ্চিত করুন" চাপলে ট্রানজ্যাকশনালি ডাটাবেজে সংরক্ষিত হবে।
 
----
-
-## 3. Key Product Decisions & Trade-Offs
-
-- **Decision 1: Shared Async SQL Engine (`DbClient`) Across On-Device WASM, Cloudflare D1, and Node SQLite**
-  - *Chosen Approach*: Refactor all database queries, transactions, accounting/POS services, and API route handlers into one isomorphic TypeScript engine operating over a unified async `DbClient` interface implemented by:
-    1. `BrowserSqliteAdapter` (`sql.js` WebAssembly + `IndexedDB` snapshot persistence) — default for static/Cloudflare Pages deployments without a cloud DB.
-    2. `CloudD1Adapter` (Cloudflare Pages Functions + `env.DB`) — auto-enabled when a client attaches a Cloudflare D1 database.
-    3. `NodeSqliteAdapter` (`better-sqlite3`) — active in local/AI Studio Node server (`server.ts`).
-  - *Why*: Eliminates any duplicate prototype/mock code. Whether running on-device or in the cloud, the exact same SQL schema, double-entry ledger balancing, weighted-average/FIFO stock COGS, and NBR VAT calculations execute.
-  - *Alternatives Considered*: Using plain `localStorage` JSON blobs (rejected—cannot support relational joins, foreign keys, ledger constraints, or clean cloud SQLite migration).
-
-- **Decision 2: Runtime Auto-Detection via Safe `GET /api/runtime`**
-  - *Chosen Approach*: On startup, the client checks `GET /api/runtime`:
-    - Node server responds `{ engine: 'node-sqlite' }`.
-    - Cloudflare Pages Functions with `env.DB` bound responds `{ engine: 'cloud-d1' }`.
-    - Cloudflare Pages Functions without `env.DB` responds `{ engine: 'on-device' }` (HTTP `200`), and pure static hosts returning HTML/404 fall back cleanly to `'on-device'`.
-  - *Why*: Eliminates `405 Method Not Allowed` forever while allowing zero-code switching to Cloudflare D1 later simply by attaching the `DB` binding in Cloudflare Dashboard.
-
-- **Decision 3: Portable Web Crypto Authentication (`PBKDF2-SHA256`)**
-  - *Chosen Approach*: Use standard Web Crypto (`crypto.subtle` PBKDF2-SHA256 + `crypto.getRandomValues`) for password hashing and session tokens across Browser, Cloudflare Edge, and Node 22+ (with backward verification for legacy `scrypt` hashes in Node).
-  - *Why*: Runs natively inside browsers, Cloudflare Workers/Pages Functions, and Node without native C++ addons.
-
-- **Security Safeguards Built In**:
-  - **Parameterized Queries Everywhere**: All SQL operations across Browser SQLite, Cloudflare D1, and Node SQLite exclusively use `?` parameter placeholders.
-  - **Real Server/Engine Auth & RBAC Enforcement**: Passwords are salted and hashed (never stored in plaintext), session tokens stay strictly in memory (never `localStorage`), and role permissions (`owner`, `accountant`, `manager`, `cashier`, `auditor`) are enforced inside the shared API router regardless of runtime mode.
-  - **Strict Bundle & Credential Isolation**: Browser bundles only include the WebAssembly SQLite client (`sql.js`), keeping Node filesystem access and server environment variables isolated on the server/edge.
+- **Visual Identity & Theme**:
+  - *Aesthetic Direction*: High-Craft Light Mode Financial Ledger — পরিচ্ছন্ন, বাহুল্যবর্জিত ও পেশাদার এন্টারপ্রাইজ ইন্টারফেস যেখানে কোনো অপ্রয়োজনীয় স্ক্রলবার, ডুপ্লিকেট বাটন বা কৃত্রিম অলংকরণ থাকবে না।
+  - *Color Palette & Mood*:
+    - `--background`: `#F8FAFC` (Slate 50) মূল ক্যানভাস ও `#FFFFFF` কার্ড/টেবিল সারফেস।
+    - `--primary`: `#0F766E` (Deep Teal) প্রধান অ্যাকশন ও ব্র্যান্ড অ্যাকসেন্ট।
+    - `--accent`: `#0F172A` (Slate 900) উচ্চ-কনট্রাস্ট নেভিগেশন ও সেকেন্ডারি কন্ট্রোল।
+    - Semantic States: `#16A34A` (Paid/Accepted/Converted), `#D97706` (Partial/Pending), `#DC2626` (Overdue/Error)।
+  - *Typography & Hierarchy*:
+    - বাংলা টেক্সটের জন্য `Noto Sans Bengali` / `Hind Siliguri` এবং ইংরেজির জন্য `IBM Plex Sans`।
+    - সকল টাকার অংক, পরিমাণ, কোটেশন/ইনভয়েস নম্বর ও তারিখে বাধ্যতামূলকভাবে `tabular-nums` (`font-mono tabular-nums`) ব্যবহৃত হবে যাতে টেবিলের কলামগুলো নিখুঁতভাবে সারিবদ্ধ থাকে।
+  - *Component Styling & Layout*:
+    - Single-elevation 1px hairline border (`border-slate-200`), কোনো নেস্টেড কার্ড-ইন-কার্ড বা বাম পাশের মোটা রঙিন বর্ডার (`border-l-4`) থাকবে না।
+    - স্ট্যাটিক মেটাডেটাতে কোনো পিল/ক্যাপসুল ব্যাজ না রেখে পরিচ্ছন্ন টেক্সট ও `·` সেপারেটর ব্যবহার করা হবে।
+- **Interactive Feedback & Motion**:
+  - সেটিংস সেভ, বাল্ক ইমপোর্ট, কোটেশন কনভার্ট ও চালান তৈরিতে তাৎক্ষণিক টোস্ট ও রিচ কনফার্মেশন ফিডব্যাক (`<= 200ms` ট্রানজিশন)।
 
 ---
 
-## 4. Technical Architecture & Data Strategy
+### 3. Key Product Decisions & Trade-Offs
+
+- **Decision 1 — ডাটাবেজ-সমর্থিত স্থায়ী ডিভাইস সেশন (Persistent Session Token + DB Verification)**
+  - *Chosen Approach*: লগইন ও অনবোর্ডিংয়ের পর সেশন টোকেনটি ডিভাইসের স্টোরেজে সংরক্ষিত থাকবে এবং অ্যাপ লোড হওয়ার সময় `/api/auth/session` এন্ডপয়েন্টের মাধ্যমে SQLite-এর `sessions` টেবিলের মেয়াদের সাথে মিলিয়ে স্বয়ংক্রিয়ভাবে সেশন পুনরুদ্ধার করবে। এছাড়া প্রতিটি মিউটেশনের পর ব্রাউজারের IndexedDB স্ন্যাপশট ফ্লাশ নিশ্চিত করা হবে।
+  - *Why*: আগে টোকেনটি শুধুমাত্র JS মেমরি ভেরিয়েবলে (`let memoryToken = null`) থাকায় পেজ রিফ্রেশ দিলেই মুছে যেত এবং ইউজারকে প্রতিবার লগইন করতে হতো। এখন ইউজার নিজে লগআউট না করা পর্যন্ত একই ডিভাইসে লগইন অবস্থায় থাকবেন।
+
+- **Decision 2 — সিস্টেম ভাষা বনাম ডকুমেন্ট প্রিন্ট/PDF ভাষা পৃথকীকরণ**
+  - *Chosen Approach*: `organizations` টেবিলে ও সেটিংসে দুটি স্বতন্ত্র ফিল্ড থাকবে: `default_language` (সিস্টেম ইউজার ইন্টারফেসের ভাষা: বাংলা বা ইংরেজি) এবং `document_language` (ক্যাশ মেমো, ইনভয়েস, কোটেশন, ডেলিভারি চালান ও স্টেটমেন্টের ভাষা: বাংলা বা ইংরেজি)। ডকুমেন্ট প্রিভিউ মোডালেও তাৎক্ষণিক ভাষা টগল করার সুবিধা থাকবে।
+  - *Why*: অনেক ব্যবসায়ী নিজে বাংলায় সফটওয়্যার পরিচালনা করতে স্বাচ্ছন্দ্য বোধ করেন কিন্তু কর্পোরেট ক্লায়েন্টদের ইংরেজিতে ইনভয়েস, কোটেশন বা চালান দিতে চান (অথবা ইংরেজি ইন্টারফেস ব্যবহার করে বাংলায় ক্যাশ মেমো প্রিন্ট করতে চান)।
+
+- **Decision 3 — মূসক ছাড়া (No Mushak) মোডে BIN সংরক্ষণ ও লাইন আইটেম অ্যাট্রিবিউট নিয়ন্ত্রণ**
+  - *Chosen Approach*: ক্যাশ মেমো ও ইনভয়েস রেন্ডারারে `config.showBinNumber` চালু থাকলে `includeVat = false` (মূসক ছাড়া) হলেও হেডারে BIN নম্বর সবসময় প্রদর্শিত হবে; কেবলমাত্র টেবিলের ভেতরের VAT শতাংশ/সারি এবং ফুটারের ভ্যাট যোগফল বাদ যাবে। একই সাথে `CashMemoSettings`-এ প্রোডাক্টের `showProductDescription`, `showProductBrand`, `showProductSize`, `showProductColor` টগল যুক্ত হবে।
+  - *Why*: ব্যবসায়িক বৈধতার জন্য মূসক ছাড়া সাধারণ ক্যাশ মেমো বা বিলেও প্রতিষ্ঠানের BIN নম্বর থাকা প্রয়োজন, এবং পণ্যের ধরন অনুযায়ী ব্র্যান্ড/সাইজ/কালার দেখানো বা লুকানোর পূর্ণ নিয়ন্ত্রণ ব্যবসায়ীর হাতে থাকা দরকার।
+
+---
+
+### 4. Technical Architecture & Data Strategy *(Technical Reference)*
+
+- **Architecture & Component Diagram**:
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                       React SPA Frontend (dist/)                        │
-│     OnboardingWizard · LoginScreen · POS · Cash Memo · Backup/Restore   │
-└────────────────────────────────────┬────────────────────────────────────┘
-                                     │
-                     ┌───────────────┴───────────────┐
-                     │  Runtime Probe: GET /api/runtime
-                     └───────────────┬───────────────┘
-          ┌──────────────────────────┴──────────────────────────┐
-          ▼ (Default on Cloudflare: On-Device)                  ▼ (When Cloud DB Enabled)
-┌───────────────────────────────────────┐         ┌───────────────────────────────────────┐
-│   In-Browser API Client Dispatch      │         │   HTTP fetch('/api/*') to Backend     │
-│   Zero network calls; zero 405 errors │         │   Cloudflare Pages Functions / Node   │
-└───────────────────┬───────────────────┘         └───────────────────┬───────────────────┘
-                    │                                                 │
-                    └────────────────────────┬────────────────────────┘
-                                             ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│             Shared Isomorphic API Router, Auth Core & Engine            │
-│    Session Auth · RBAC · Double-Entry Ledger · Stock COGS · Mushak 6.3  │
-└──────────┬─────────────────────────────────┬──────────────────┬─────────┘
-           │                                 │                  │
-           ▼                                 ▼                  ▼
-┌─────────────────────┐         ┌─────────────────────┐  ┌────────────────┐
-│ BrowserSqliteAdapter│         │    CloudD1Adapter   │  │NodeSqliteAdapter│
-│ sql.js WASM + IDB   │         │ Cloudflare D1 (DB)  │  │ better-sqlite3 │
-│ (Device Persistent) │         │ (Opt-In Cloud Sync) │  │ (Local / VPS)  │
-└─────────────────────┘         └─────────────────────┘  └────────────────┘
+┌────────────────────────────────────────────────────────────────────────────┐
+│                        Bepari Application Shell                            │
+│  ┌──────────────────────┐  ┌────────────────────────────────────────────┐  │
+│  │ Persistent Auth &    │  │ Dual Language Engine                       │  │
+│  │ Settings Synchronizer│  │ • System UI Language (defaultLanguage)     │  │
+│  │ • Device Token Store │  │ • Document Print Language (documentLang)   │  │
+│  │ • GET /api/auth/me   │  │ • Auto-persisted to SQLite & IndexedDB     │  │
+│  └──────────┬───────────┘  └─────────────────────┬──────────────────────┘  │
+└─────────────┼────────────────────────────────────┼─────────────────────────┘
+              │                                    │
+              ▼                                    ▼
+┌────────────────────────────────────────────────────────────────────────────┐
+│                     Core Workspace & Navigation Modules                    │
+│                                                                            │
+│  ┌────────────────────────┐  ┌────────────────────────┐  ┌──────────────┐  │
+│  │ Quotations Workspace   │  │ Sales & POS Workspace  │  │ Products &   │  │
+│  │ (Top-Level Menu)       │  │ • P.O No / Challan No  │  │ Customers    │  │
+│  │ • Create/Edit Quote    │  │   & Challan Date       │  │ • Brand/Size │  │
+│  │ • Quote Print / PDF    │  │ • 1-Click Delivery     │  │   /Color     │  │
+│  │ • 1-Click Convert to   │  │   Challan Generator    │  │ • CSV & Copy │  │
+│  │   Invoice + Stock Sync │  │ • With/No Mushak (BIN) │  │   Bulk Import│  │
+│  └───────────┬────────────┘  └───────────┬────────────┘  └──────┬───────┘  │
+└──────────────┼───────────────────────────┼──────────────────────┼──────────┘
+               │                           │                      │
+               ▼                           ▼                      ▼
+┌────────────────────────────────────────────────────────────────────────────┐
+│             Document Print & PDF Engine (A4 / Cash Memo / Thermal)         │
+│  • Independent Document Language (BN / EN)                                 │
+│  • Header: Logo, Business Info, BIN (Always shown if enabled), P.O No,     │
+│    Challan No, Challan Date                                                │
+│  • Line Items: Configurable Product Description + Brand + Size + Color     │
+│  • Document Modes: Cash Memo, Tax Invoice, Mushak 6.3, Delivery Challan,   │
+│    Quotation, Customer Statement                                           │
+│  • Footer: Slogan, Footer Description, Multi-Brand Logo Strip, Signatures  │
+└──────────────────────────────────────────┬─────────────────────────────────┘
+                                           │
+                                           ▼
+┌────────────────────────────────────────────────────────────────────────────┐
+│         Unified SQLite Persistence Layer (On-Device WASM / Node / D1)      │
+│  • organizations (+ document_language, quotation_prefix, challan_prefix)   │
+│  • products (+ size, color, brand, description)                            │
+│  • invoices (+ po_number, challan_number, challan_date, quotation_id)      │
+│  • quotations & quotation_items (full lifecycle + conversion link)         │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **On-Device Persistence Lifecycle (`BrowserSqliteAdapter`)**:
-  - Loads `sql.js` WebAssembly bundled cleanly by Vite (`?url` asset import, works offline and on Cloudflare CDN without external URLs).
-  - Hydrates existing SQLite binary bytes from `IndexedDB` (`bepari_local_db`) on startup, applies idempotent `initSchema` + `seedBaselineConfig` (empty organization awaiting onboarding + COA + VAT rules), and persists updated SQLite bytes back to `IndexedDB` cleanly after every mutating request or transaction.
-  - Supports exporting/importing `.sqlite` database files in Settings so users can back up device data or move between devices anytime.
-- **Opt-In Cloud Upgrade Path (`wrangler.toml` + Pages Functions)**:
-  - Ships `wrangler.toml` (`pages_build_output_dir = "./dist"`, `nodejs_compat`) and a catch-all Cloudflare Pages `/api/*` handler. While `DB` is unbound, `/api/runtime` returns `{ engine: 'on-device' }` cleanly (`200 OK`); once a client creates a Cloudflare D1 database and binds it as `DB`, `/api/runtime` returns `{ engine: 'cloud-d1' }` automatically.
-- **GitHub & Cloudflare CI Pipeline**:
-  - Removes `bun.lock` and generates `package-lock.json` via `npm` so `actions/setup-node@v4` (`cache: 'npm'`) and Cloudflare Pages Git integration build deterministically with `npm ci` and `npm run build`.
+- **Data Model & State Extensions**:
+  1. **Organization & Document Settings (`organizations` table & `CashMemoSettings`)**:
+     - `document_language TEXT NOT NULL DEFAULT 'bn'` (সিস্টেম ভাষা `default_language` থেকে সম্পূর্ণ স্বাধীন)।
+     - `quotation_prefix TEXT NOT NULL DEFAULT 'QTN'` এবং `challan_prefix TEXT NOT NULL DEFAULT 'CHL'`।
+     - `CashMemoSettings`-এ নতুন গ্লোবাল ও টেমপ্লেট প্রপার্টি:
+       - `showPoAndChallan: boolean` (default `true`)
+       - `showProductDescription: boolean` (default `true`)
+       - `showProductBrand: boolean` (default `true`)
+       - `showProductSize: boolean` (default `true`)
+       - `showProductColor: boolean` (default `true`)
+       - `showFooterSlogan: boolean` (default `true`)
+       - `showFooterBrandLogos: boolean` (default `true`)
+       - `footerBrandLogos: { id: string; name: string; dataUrl: string }[]` (একাধিক ব্র্যান্ড লোগো সংরক্ষণ ও সারিবদ্ধ প্রদর্শন)।
+  2. **Product Attributes (`products` table)**:
+     - নতুন কলাম (আইডেমপোটেন্ট মাইগ্রেশনসহ): `size TEXT NOT NULL DEFAULT ''`, `color TEXT NOT NULL DEFAULT ''` (বিদ্যমান `brand` ও `description`-এর সাথে সমন্বিত)।
+  3. **Invoice P.O & Challan Metadata (`invoices` table)**:
+     - নতুন কলাম: `po_number TEXT NOT NULL DEFAULT ''`, `challan_number TEXT NOT NULL DEFAULT ''`, `challan_date TEXT NOT NULL DEFAULT ''`, `quotation_id INTEGER DEFAULT NULL`।
+     - নতুন ইনভয়েস বা POS সেল তৈরির সময় `challan_number` ফাঁকা থাকলে স্বয়ংক্রিয়ভাবে `CHL-YYYY-XXXX` এবং `challan_date` হিসেবে ইনভয়েসের তারিখ বসে যাবে (ইউজার চাইলে কাস্টম নম্বর ও `P.O No` দিতে পারবেন)।
+  4. **Quotation Module (`quotations` ও `quotation_items` tables)**:
+     - `quotations`: `id`, `quotation_number`, `branch_id`, `customer_id`, `issue_date`, `valid_until`, `po_number`, `status` (`'draft' | 'sent' | 'accepted' | 'converted' | 'expired'`), `subtotal`, `discount_total`, `vat_total`, `grand_total`, `notes`, `converted_invoice_id`, `created_at`।
+     - `quotation_items`: `id`, `quotation_id`, `product_id`, `description`, `quantity`, `unit_price`, `discount_amount`, `tax_rule_id`, `tax_rate`, `taxable_value`, `vat_amount`, `line_total`।
+
+- **Interactive Component & State Mapping**:
+  - **Session & Settings Persistence**:
+    - লগইন বা অনবোর্ডিং সফল হলে সেশন টোকেনটি ডিভাইস স্টোরেজে সেভ হবে। অ্যাপ রিলোড হলে `/api/auth/status`-এর পাশাপাশি সংরক্ষিত টোকেন দিয়ে `/api/auth/session` কল করে ইউজারকে লগইন স্ক্রিন ছাড়াই সরাসরি ওয়ার্কস্পেসে নিয়ে যাবে।
+    - হেডারের ভাষা টগল বাটন (`বাংলা / EN`) ক্লিক করলে সাথে সাথে `PATCH /api/organization` (`{ defaultLanguage }`) কল হয়ে ডাটাবেজে সেভ হবে।
+    - সেটিংস ও ডকুমেন্ট কাস্টমাইজারে **সিস্টেম ভাষা (System Language)** এবং **ডকুমেন্ট ভাষা (Memo / Invoice / Statement Language)** আলাদাভাবে সেট ও সেভ করা যাবে।
+  - **Quotation Module & Conversion**:
+    - সাইডবার ও মোবাইল নেভিগেশনে **কোটেশন (Quotations)** মেনু যুক্ত হবে।
+    - কোটেশন তৈরি, সম্পাদনা, ডিলিট, প্রিন্ট/PDF প্রিভিউ এবং **"ইনভয়েসে রূপান্তর (Convert to Invoice)"** অ্যাকশন থাকবে (`POST /api/quotations/:id/convert`), যা এক ক্লিকে কোটেশনের সব আইটেম দিয়ে ইনভয়েস তৈরি করবে।
+  - **Delivery Challan Generation**:
+    - POS কাউন্টারের পোস্ট-সেল কার্ডে, ইনভয়েস তালিকায় এবং মেমো প্রিভিউ মোডালে **"ডেলিভারি চালান"** বাটন থাকবে। ক্লিক করলে `DocumentPreviewModal`-এ `type: 'delivery_challan'` ওপেন হবে যেখানে পণ্যের নাম, ব্র্যান্ড/সাইজ/কালার/বিবরণ, একক ও পরিমাণ, `P.O No`, `Challan No`, `Challan Date` এবং ক্রেতা/বিক্রেতার স্বাক্ষরের ঘর থাকবে (মূল্য ছাড়া)।
+  - **Bulk Import Modal (Products & Customers)**:
+    - প্রোডাক্ট ডিরেক্টরি ও কাস্টমার ডিরেক্টরিতে **"বাল্ক ইমপোর্ট"** বাটন থাকবে।
+    - মোডালে স্যাম্পল CSV ডাউনলোড, CSV ফাইল আপলোড এবং Excel/Sheets থেকে কপি-পেস্ট টেক্সট এরিয়া থাকবে। পার্সকৃত ডাটা টেবিলে প্রিভিউ দেখিয়ে `POST /api/products/bulk` এবং `POST /api/customers/bulk` এন্ডপয়েন্টের মাধ্যমে এক ক্লিকে ডাটাবেজে সংরক্ষণ করবে।

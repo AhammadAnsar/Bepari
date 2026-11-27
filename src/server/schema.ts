@@ -13,11 +13,14 @@ export const SCHEMA_TABLES: string[] = [
     currency TEXT NOT NULL DEFAULT 'BDT',
     currency_symbol TEXT NOT NULL DEFAULT '৳',
     default_language TEXT NOT NULL DEFAULT 'bn',
+    document_language TEXT NOT NULL DEFAULT 'bn',
     inventory_method TEXT NOT NULL DEFAULT 'weighted_avg',
     vat_mode TEXT NOT NULL DEFAULT 'exclusive',
     fiscal_year_start_month INTEGER NOT NULL DEFAULT 7,
     invoice_prefix TEXT NOT NULL DEFAULT 'INV',
     mushak_prefix TEXT NOT NULL DEFAULT 'M63',
+    quotation_prefix TEXT NOT NULL DEFAULT 'QTN',
+    challan_prefix TEXT NOT NULL DEFAULT 'CHL',
     admin_password_hash TEXT DEFAULT NULL,
     logo_url TEXT NOT NULL DEFAULT '',
     cash_memo_settings_json TEXT NOT NULL DEFAULT '',
@@ -105,6 +108,8 @@ export const SCHEMA_TABLES: string[] = [
     sku TEXT NOT NULL UNIQUE,
     barcode TEXT NOT NULL DEFAULT '',
     brand TEXT NOT NULL DEFAULT '',
+    size TEXT NOT NULL DEFAULT '',
+    color TEXT NOT NULL DEFAULT '',
     name TEXT NOT NULL,
     name_bn TEXT NOT NULL DEFAULT '',
     unit TEXT NOT NULL DEFAULT 'pcs',
@@ -168,6 +173,10 @@ export const SCHEMA_TABLES: string[] = [
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     invoice_number TEXT NOT NULL UNIQUE,
     mushak_challan_no TEXT NOT NULL UNIQUE,
+    po_number TEXT NOT NULL DEFAULT '',
+    challan_number TEXT NOT NULL DEFAULT '',
+    challan_date TEXT NOT NULL DEFAULT '',
+    quotation_id INTEGER DEFAULT NULL,
     branch_id INTEGER NOT NULL REFERENCES branches(id),
     customer_id INTEGER NOT NULL REFERENCES customers(id),
     issue_date TEXT NOT NULL,
@@ -187,6 +196,40 @@ export const SCHEMA_TABLES: string[] = [
   `CREATE TABLE IF NOT EXISTS invoice_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+    product_id INTEGER REFERENCES products(id),
+    description TEXT NOT NULL,
+    quantity REAL NOT NULL,
+    unit_price REAL NOT NULL,
+    discount_amount REAL NOT NULL DEFAULT 0,
+    tax_rule_id INTEGER REFERENCES tax_rules(id),
+    tax_rate REAL NOT NULL DEFAULT 0,
+    sd_rate REAL NOT NULL DEFAULT 0,
+    taxable_value REAL NOT NULL DEFAULT 0,
+    sd_amount REAL NOT NULL DEFAULT 0,
+    vat_amount REAL NOT NULL DEFAULT 0,
+    line_total REAL NOT NULL DEFAULT 0
+  )`,
+  `CREATE TABLE IF NOT EXISTS quotations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    quotation_number TEXT NOT NULL UNIQUE,
+    branch_id INTEGER NOT NULL REFERENCES branches(id),
+    customer_id INTEGER NOT NULL REFERENCES customers(id),
+    issue_date TEXT NOT NULL,
+    valid_until TEXT NOT NULL,
+    po_number TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'sent' CHECK (status IN ('draft','sent','accepted','converted','expired')),
+    subtotal REAL NOT NULL DEFAULT 0,
+    discount_total REAL NOT NULL DEFAULT 0,
+    sd_total REAL NOT NULL DEFAULT 0,
+    vat_total REAL NOT NULL DEFAULT 0,
+    grand_total REAL NOT NULL DEFAULT 0,
+    notes TEXT NOT NULL DEFAULT '',
+    converted_invoice_id INTEGER DEFAULT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS quotation_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    quotation_id INTEGER NOT NULL REFERENCES quotations(id) ON DELETE CASCADE,
     product_id INTEGER REFERENCES products(id),
     description TEXT NOT NULL,
     quantity REAL NOT NULL,
@@ -306,7 +349,7 @@ export const SCHEMA_TABLES: string[] = [
   )`,
 ];
 
-const ALLOWED_MIGRATION_TABLES = new Set(['products', 'stock_movements', 'organizations']);
+const ALLOWED_MIGRATION_TABLES = new Set(['products', 'stock_movements', 'organizations', 'invoices']);
 
 async function ensureColumn(db: DbClient, table: string, col: string, ddl: string): Promise<void> {
   if (!ALLOWED_MIGRATION_TABLES.has(table)) return;
@@ -324,6 +367,8 @@ export async function initSchemaAsync(db: DbClient): Promise<void> {
   // Safe idempotent column migrations for pre-existing SQLite databases
   await ensureColumn(db, 'products', 'barcode', `barcode TEXT NOT NULL DEFAULT ''`);
   await ensureColumn(db, 'products', 'brand', `brand TEXT NOT NULL DEFAULT ''`);
+  await ensureColumn(db, 'products', 'size', `size TEXT NOT NULL DEFAULT ''`);
+  await ensureColumn(db, 'products', 'color', `color TEXT NOT NULL DEFAULT ''`);
   await ensureColumn(db, 'products', 'description', `description TEXT NOT NULL DEFAULT ''`);
   await ensureColumn(db, 'products', 'image_url', `image_url TEXT NOT NULL DEFAULT ''`);
   await ensureColumn(db, 'products', 'is_active', `is_active INTEGER NOT NULL DEFAULT 1`);
@@ -335,6 +380,13 @@ export async function initSchemaAsync(db: DbClient): Promise<void> {
   await ensureColumn(db, 'organizations', 'website', `website TEXT NOT NULL DEFAULT ''`);
   await ensureColumn(db, 'organizations', 'business_description', `business_description TEXT NOT NULL DEFAULT ''`);
   await ensureColumn(db, 'organizations', 'onboarding_completed', `onboarding_completed INTEGER NOT NULL DEFAULT 0`);
+  await ensureColumn(db, 'organizations', 'document_language', `document_language TEXT NOT NULL DEFAULT 'bn'`);
+  await ensureColumn(db, 'organizations', 'quotation_prefix', `quotation_prefix TEXT NOT NULL DEFAULT 'QTN'`);
+  await ensureColumn(db, 'organizations', 'challan_prefix', `challan_prefix TEXT NOT NULL DEFAULT 'CHL'`);
+  await ensureColumn(db, 'invoices', 'po_number', `po_number TEXT NOT NULL DEFAULT ''`);
+  await ensureColumn(db, 'invoices', 'challan_number', `challan_number TEXT NOT NULL DEFAULT ''`);
+  await ensureColumn(db, 'invoices', 'challan_date', `challan_date TEXT NOT NULL DEFAULT ''`);
+  await ensureColumn(db, 'invoices', 'quotation_id', `quotation_id INTEGER DEFAULT NULL`);
 
   // Legacy Node SQLite payments CHECK migration (D1 and fresh sql.js already include 'rocket')
   if (db.dialect === 'sqlite-node') {
@@ -394,11 +446,11 @@ export async function seedBaselineConfigAsync(db: DbClient): Promise<void> {
     await db.run(
       `INSERT INTO organizations (
         id, name, name_bn, bin_number, tin_number, phone, email, address,
-        currency, currency_symbol, default_language, inventory_method, vat_mode,
-        fiscal_year_start_month, invoice_prefix, mushak_prefix, onboarding_completed
+        currency, currency_symbol, default_language, document_language, inventory_method, vat_mode,
+        fiscal_year_start_month, invoice_prefix, mushak_prefix, quotation_prefix, challan_prefix, onboarding_completed
       ) VALUES (
         1, '', '', '', '', '', '', '',
-        'BDT', '৳', 'bn', 'weighted_avg', 'exclusive', 7, 'INV', 'M63', 0
+        'BDT', '৳', 'bn', 'bn', 'weighted_avg', 'exclusive', 7, 'INV', 'M63', 'QTN', 'CHL', 0
       )`
     );
   } else if (
@@ -411,6 +463,8 @@ export async function seedBaselineConfigAsync(db: DbClient): Promise<void> {
         'documents',
         'payment_allocations',
         'payments',
+        'quotation_items',
+        'quotations',
         'invoice_items',
         'invoices',
         'purchase_items',

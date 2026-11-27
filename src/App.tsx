@@ -3,6 +3,7 @@ import {
   BarChart3,
   Boxes,
   FileSpreadsheet,
+  FileText,
   LayoutDashboard,
   LogOut,
   MoreHorizontal,
@@ -28,6 +29,7 @@ import { PaymentFormModal } from './components/PaymentFormModal';
 import { PosCounterView } from './components/PosCounterView';
 import { ProductsDirectoryWorkspace } from './components/ProductsDirectoryWorkspace';
 import { PurchasesExpensesWorkspace } from './components/PurchasesExpensesWorkspace';
+import { QuotationsWorkspace } from './components/QuotationsWorkspace';
 import { SalesWorkspace } from './components/SalesWorkspace';
 import { SettingsSecurityWorkspace } from './components/SettingsSecurityWorkspace';
 import { VatMushakWorkspace } from './components/VatMushakWorkspace';
@@ -36,8 +38,10 @@ import { formatMoney } from './engine/format';
 import type { Customer, Invoice, Language, Payment } from './engine/types';
 import { DICT } from './i18n/translations';
 import {
+  apiRequest,
   bootstrapSession,
   fetchAuthStatus,
+  fetchCurrentSession,
   fetchCustomerStatement,
   fetchWorkspace,
   loginWithPassword,
@@ -48,11 +52,11 @@ import {
   type SessionInfo,
   type WorkspacePayload,
 } from './lib/api';
-import { printThermalReceipt } from './lib/pdfExport';
 
 type SectionId =
   | 'overview'
   | 'sales'
+  | 'quotations'
   | 'customers'
   | 'pos'
   | 'products'
@@ -108,6 +112,28 @@ export default function App() {
     setWorkspace(payload);
   }, []);
 
+  const handleToggleLanguage = useCallback(() => {
+    const nextLang: Language = lang === 'bn' ? 'en' : 'bn';
+    setLang(nextLang);
+    if (session) {
+      setWorkspace((prev) =>
+        prev
+          ? {
+              ...prev,
+              organization: {
+                ...prev.organization,
+                defaultLanguage: nextLang,
+              },
+            }
+          : prev
+      );
+      apiRequest('/api/organization', {
+        method: 'PATCH',
+        body: { defaultLanguage: nextLang },
+      }).catch(() => {});
+    }
+  }, [lang, session]);
+
   useEffect(() => {
     let active = true;
     (async () => {
@@ -123,6 +149,21 @@ export default function App() {
           return;
         }
         setServerLocked(Boolean(status.locked));
+
+        // First try to restore the active session from the device database or HttpOnly cookie
+        const existingSess = await fetchCurrentSession().catch(() => null);
+        if (!active) return;
+        if (existingSess && existingSess.token) {
+          setMemoryToken(existingSess.token);
+          setSession(existingSess);
+          setAuthLocked(false);
+          const payload = await fetchWorkspace();
+          if (!active) return;
+          setWorkspace(payload);
+          setLang(payload.organization.defaultLanguage || 'bn');
+          return;
+        }
+
         if (status.locked) {
           setAuthLocked(true);
           setLoading(false);
@@ -194,9 +235,11 @@ export default function App() {
       setLoginPassword('');
       const payload = await fetchWorkspace();
       setWorkspace(payload);
+      setLang(payload.organization.defaultLanguage || 'bn');
+      const userBn = (payload.organization.defaultLanguage || 'bn') === 'bn';
       notify({
-        title: isBn ? `স্বাগতম, ${sess.user.name}` : `Welcome back, ${sess.user.name}`,
-        description: isBn ? 'আপনার ওয়ার্কস্পেস প্রস্তুত।' : 'Your workspace is ready.',
+        title: userBn ? `স্বাগতম, ${sess.user.name}` : `Welcome back, ${sess.user.name}`,
+        description: userBn ? 'আপনার ওয়ার্কস্পেস প্রস্তুত।' : 'Your workspace is ready.',
         variant: 'success',
         sound: 'save',
       });
@@ -236,6 +279,7 @@ export default function App() {
       setSignedOutManually(false);
       const payload = await fetchWorkspace(selectedBranchId > 0 ? selectedBranchId : undefined);
       setWorkspace(payload);
+      setLang(payload.organization.defaultLanguage || 'bn');
       notify({
         title: isBn ? 'সেশন পুনরায় চালু হয়েছে।' : 'Session resumed.',
         variant: 'success',
@@ -376,6 +420,7 @@ export default function App() {
   const navItems: { id: SectionId; label: string; icon: typeof LayoutDashboard }[] = [
     { id: 'overview', label: t.nav.overview, icon: LayoutDashboard },
     { id: 'sales', label: t.nav.sales, icon: ReceiptText },
+    { id: 'quotations', label: t.nav.quotations, icon: FileText },
     { id: 'customers', label: t.nav.customers, icon: Users },
     { id: 'pos', label: t.nav.pos, icon: ShoppingCart },
     { id: 'products', label: t.nav.products, icon: Boxes },
@@ -447,7 +492,7 @@ export default function App() {
               <button
                 type="button"
                 aria-label="Toggle language desktop"
-                onClick={() => setLang((prev) => (prev === 'bn' ? 'en' : 'bn'))}
+                onClick={handleToggleLanguage}
                 className="font-semibold text-slate-700 hover:text-[#0F766E] whitespace-nowrap"
               >
                 {lang === 'bn' ? 'EN' : 'বাংলা'}
@@ -598,7 +643,19 @@ export default function App() {
                 setPaymentModalOpen(true);
               }}
               onPreviewInvoice={(inv) => setPreviewDoc({ type: 'invoice', invoice: inv })}
+              onPreviewChallan={(inv) => setPreviewDoc({ type: 'delivery_challan', invoice: inv })}
               onPreviewMushak={(inv) => setPreviewDoc({ type: 'mushak_63', invoice: inv })}
+              onRefresh={() => loadWorkspaceData(selectedBranchId)}
+            />
+          )}
+
+          {section === 'quotations' && (
+            <QuotationsWorkspace
+              data={workspace}
+              lang={lang}
+              activeBranchId={activeBranchForForms}
+              onPreviewQuotation={(qt) => setPreviewDoc({ type: 'quotation', quotation: qt })}
+              onPreviewInvoice={(inv) => setPreviewDoc({ type: 'invoice', invoice: inv })}
               onRefresh={() => loadWorkspaceData(selectedBranchId)}
             />
           )}
@@ -632,14 +689,16 @@ export default function App() {
               lang={lang}
               activeBranchId={activeBranchForForms}
               onRefresh={() => loadWorkspaceData(selectedBranchId)}
+              onPreviewMemo={(inv) => setPreviewDoc({ type: 'pos_receipt', invoice: inv })}
+              onPreviewChallan={(inv) => setPreviewDoc({ type: 'delivery_challan', invoice: inv })}
               onCompleted={async (inv) => {
                 await loadWorkspaceData(selectedBranchId);
                 setPreviewDoc({ type: 'pos_receipt', invoice: inv });
                 celebrate({
                   title: isBn ? 'বিক্রয় সম্পন্ন হয়েছে!' : 'POS Sale Completed!',
                   subtitle: isBn
-                    ? 'ইনভয়েস, স্টক ও লেজারে স্বয়ংক্রিয়ভাবে সিঙ্ক হয়েছে।'
-                    : 'Invoice, stock, and ledger synced automatically.',
+                    ? 'ইনভয়েস, চালান, স্টক ও লেজারে স্বয়ংক্রিয়ভাবে সিঙ্ক হয়েছে।'
+                    : 'Invoice, challan, stock, and ledger synced automatically.',
                   refLabel: isBn ? 'মেমো' : 'Memo',
                   refValue: inv.invoiceNumber,
                   customerName: inv.customerName,
@@ -651,8 +710,8 @@ export default function App() {
                     onClick: () => setPreviewDoc({ type: 'pos_receipt', invoice: inv }),
                   },
                   secondaryAction: {
-                    label: isBn ? 'টার্মিনাল প্রিন্ট' : 'Terminal Print',
-                    onClick: () => printThermalReceipt(inv, workspace.organization, lang),
+                    label: isBn ? 'ডেলিভারি চালান' : 'Delivery Challan',
+                    onClick: () => setPreviewDoc({ type: 'delivery_challan', invoice: inv }),
                   },
                 });
               }}
@@ -709,6 +768,7 @@ export default function App() {
             <SettingsSecurityWorkspace
               data={workspace}
               lang={lang}
+              onChangeSystemLanguage={(nextLang) => setLang(nextLang)}
               subtab={subtabs.settings || 'organization'}
               onSubtabChange={(tab) => setSubtabs((prev) => ({ ...prev, settings: tab }))}
               session={session}
@@ -754,12 +814,12 @@ export default function App() {
             type="button"
             onClick={() => setMoreDrawerOpen((v) => !v)}
             className={`relative h-full flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium active:scale-95 transition-transform ${
-              ['customers', 'products', 'vat', 'reports', 'settings'].includes(section) || moreDrawerOpen
+              ['quotations', 'customers', 'products', 'vat', 'reports', 'settings'].includes(section) || moreDrawerOpen
                 ? 'text-[#0F766E]'
                 : 'text-slate-500'
             }`}
           >
-            {['customers', 'products', 'vat', 'reports', 'settings'].includes(section) && (
+            {['quotations', 'customers', 'products', 'vat', 'reports', 'settings'].includes(section) && (
               <span className="absolute top-0 w-8 h-[2.5px] bg-[#0F766E] rounded-b-full" />
             )}
             <MoreHorizontal className="w-[21px] h-[21px]" strokeWidth={2} />
@@ -768,7 +828,7 @@ export default function App() {
         </div>
       </nav>
 
-      {/* Native Mobile More Bottom Sheet (Branch + Language Switcher + Streamlined 5-Module Navigation) */}
+      {/* Native Mobile More Bottom Sheet (Branch + Language Switcher + Modules) */}
       {moreDrawerOpen && (
         <div
           className="lg:hidden fixed inset-0 z-40 bg-slate-900/45 backdrop-blur-[2px] flex items-end"
@@ -817,7 +877,7 @@ export default function App() {
                 <button
                   type="button"
                   aria-label="Toggle language mobile"
-                  onClick={() => setLang((prev) => (prev === 'bn' ? 'en' : 'bn'))}
+                  onClick={handleToggleLanguage}
                   className="w-full h-11 px-2.5 text-xs font-semibold text-slate-800 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl active:scale-[0.98] transition-all whitespace-nowrap"
                 >
                   {lang === 'bn' ? 'English' : 'বাংলা'}
@@ -825,48 +885,69 @@ export default function App() {
               </div>
             </div>
 
-            {/* Primary Directories: Customers & Products */}
-            <div className="grid grid-cols-2 gap-2.5">
+            {/* Primary Directories: Quotations, Customers & Products */}
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => handleNavigate('quotations')}
+                className={`p-3 flex flex-col justify-between gap-2 text-left rounded-2xl border active:scale-[0.98] transition-all ${
+                  section === 'quotations'
+                    ? 'bg-[#0F766E]/10 border-[#0F766E]/30 text-[#0F766E]'
+                    : 'bg-slate-50/70 border-slate-200 text-slate-800'
+                }`}
+              >
+                <div className="flex items-center justify-between w-full">
+                  <FileText className="w-5 h-5 text-[#0F766E] shrink-0" />
+                  <span className="text-xs font-semibold tabular-nums text-slate-500">
+                    {(workspace.quotations || []).length}
+                  </span>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold leading-snug truncate">{t.nav.quotations}</div>
+                  <div className="text-[10px] text-slate-500 truncate">{isBn ? 'কোটেশন ও দরপত্র' : 'Proposals'}</div>
+                </div>
+              </button>
+
               <button
                 type="button"
                 onClick={() => handleNavigate('customers')}
-                className={`p-3.5 flex items-center justify-between gap-2 text-left rounded-2xl border active:scale-[0.98] transition-all ${
+                className={`p-3 flex flex-col justify-between gap-2 text-left rounded-2xl border active:scale-[0.98] transition-all ${
                   section === 'customers'
                     ? 'bg-[#0F766E]/10 border-[#0F766E]/30 text-[#0F766E]'
                     : 'bg-slate-50/70 border-slate-200 text-slate-800'
                 }`}
               >
-                <div className="flex items-center gap-2.5 min-w-0">
+                <div className="flex items-center justify-between w-full">
                   <Users className="w-5 h-5 text-[#0F766E] shrink-0" />
-                  <div className="min-w-0">
-                    <div className="text-xs font-semibold leading-snug truncate">{t.nav.customers}</div>
-                    <div className="text-[10px] text-slate-500 truncate">{isBn ? 'খাতা ও বকেয়া' : 'Ledgers'}</div>
-                  </div>
+                  <span className="text-xs font-semibold tabular-nums text-slate-500">
+                    {workspace.customers.length}
+                  </span>
                 </div>
-                <span className="text-xs font-semibold tabular-nums text-slate-500 shrink-0">
-                  {workspace.customers.length}
-                </span>
+                <div>
+                  <div className="text-xs font-semibold leading-snug truncate">{t.nav.customers}</div>
+                  <div className="text-[10px] text-slate-500 truncate">{isBn ? 'খাতা ও বকেয়া' : 'Ledgers'}</div>
+                </div>
               </button>
 
               <button
                 type="button"
                 onClick={() => handleNavigate('products')}
-                className={`p-3.5 flex items-center justify-between gap-2 text-left rounded-2xl border active:scale-[0.98] transition-all ${
+                className={`p-3 flex flex-col justify-between gap-2 text-left rounded-2xl border active:scale-[0.98] transition-all ${
                   section === 'products'
                     ? 'bg-[#0F766E]/10 border-[#0F766E]/30 text-[#0F766E]'
                     : 'bg-slate-50/70 border-slate-200 text-slate-800'
                 }`}
               >
-                <div className="flex items-center gap-2.5 min-w-0">
+                <div className="flex items-center justify-between w-full">
                   <Boxes className="w-5 h-5 text-[#0F766E] shrink-0" />
-                  <div className="min-w-0">
-                    <div className="text-xs font-semibold leading-snug truncate">{t.nav.products}</div>
-                    <div className="text-[10px] text-slate-500 truncate">{isBn ? 'ক্যাটালগ ও স্টক' : 'Catalog'}</div>
-                  </div>
+                  <span className="text-xs font-semibold tabular-nums text-slate-500">
+                    {workspace.products.length}
+                  </span>
                 </div>
-                <span className="text-xs font-semibold tabular-nums text-slate-500 shrink-0">
-                  {workspace.products.length}
-                </span>
+                <div>
+                  <div className="text-xs font-semibold leading-snug truncate">{t.nav.products}</div>
+                  <div className="text-[10px] text-slate-500 truncate">{isBn ? 'ক্যাটালগ ও স্টক' : 'Catalog'}</div>
+                </div>
               </button>
             </div>
 
@@ -954,6 +1035,10 @@ export default function App() {
                 primaryAction: {
                   label: isBn ? 'ইনভয়েস দেখুন' : 'View Invoice',
                   onClick: () => setPreviewDoc({ type: 'invoice', invoice: saved }),
+                },
+                secondaryAction: {
+                  label: isBn ? 'ডেলিভারি চালান' : 'Delivery Challan',
+                  onClick: () => setPreviewDoc({ type: 'delivery_challan', invoice: saved }),
                 },
               });
             }

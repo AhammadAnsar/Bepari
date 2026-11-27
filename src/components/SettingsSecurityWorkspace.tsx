@@ -23,6 +23,7 @@ interface Props {
   session: SessionInfo;
   onSwitchUser: (userId: number) => Promise<void>;
   onRefresh: () => Promise<void>;
+  onChangeSystemLanguage?: (lang: Language) => void;
 }
 
 export function SettingsSecurityWorkspace({
@@ -33,6 +34,7 @@ export function SettingsSecurityWorkspace({
   session,
   onSwitchUser,
   onRefresh,
+  onChangeSystemLanguage,
 }: Props) {
   const t = DICT[lang];
   const isBn = lang === 'bn';
@@ -52,6 +54,10 @@ export function SettingsSecurityWorkspace({
   const [businessDescription, setBusinessDescription] = useState(org.businessDescription || '');
   const [invMethod, setInvMethod] = useState<InventoryMethod>(org.inventoryMethod);
   const [vatMode, setVatMode] = useState<TaxMode>(org.vatMode);
+  const [defaultLanguage, setDefaultLanguage] = useState<Language>(org.defaultLanguage || 'bn');
+  const [documentLanguage, setDocumentLanguage] = useState<Language>(org.documentLanguage || org.defaultLanguage || 'bn');
+  const [quotationPrefix, setQuotationPrefix] = useState(org.quotationPrefix || 'QTN');
+  const [challanPrefix, setChallanPrefix] = useState(org.challanPrefix || 'CHL');
   const [logoUrl, setLogoUrl] = useState(org.logoUrl || '');
   const [uploadingLogo, setUploadingLogo] = useState(false);
 
@@ -70,6 +76,10 @@ export function SettingsSecurityWorkspace({
     setBusinessDescription(org.businessDescription || '');
     setInvMethod(org.inventoryMethod);
     setVatMode(org.vatMode);
+    setDefaultLanguage(org.defaultLanguage || 'bn');
+    setDocumentLanguage(org.documentLanguage || org.defaultLanguage || 'bn');
+    setQuotationPrefix(org.quotationPrefix || 'QTN');
+    setChallanPrefix(org.challanPrefix || 'CHL');
     setLogoUrl(org.logoUrl || '');
   }, [org]);
 
@@ -201,9 +211,14 @@ export function SettingsSecurityWorkspace({
           businessDescription,
           inventoryMethod: invMethod,
           vatMode,
+          defaultLanguage,
+          documentLanguage,
+          quotationPrefix: quotationPrefix.trim() || 'QTN',
+          challanPrefix: challanPrefix.trim() || 'CHL',
           logoUrl,
         },
       });
+      onChangeSystemLanguage?.(defaultLanguage);
       const msg = isBn ? 'প্রতিষ্ঠানের তথ্য সংরক্ষিত হয়েছে।' : 'Organization settings saved.';
       setMessage(msg);
       notify({
@@ -517,6 +532,77 @@ export function SettingsSecurityWorkspace({
                   <option value="exclusive">{isBn ? 'ভ্যাট বহির্ভূত (Exclusive)' : 'Tax Exclusive'}</option>
                   <option value="inclusive">{isBn ? 'ভ্যাট অন্তর্ভুক্ত (Inclusive)' : 'Tax Inclusive'}</option>
                 </select>
+              </div>
+              <div>
+                <label htmlFor="org-sys-lang" className="block text-xs text-slate-600 mb-1">
+                  {isBn ? 'সিস্টেম ইউজার ইন্টারফেসের ভাষা' : 'System UI Language'}
+                </label>
+                <select
+                  id="org-sys-lang"
+                  data-testid="org-sys-lang"
+                  value={defaultLanguage}
+                  onChange={(e) => {
+                    const next = e.target.value as Language;
+                    setDefaultLanguage(next);
+                    onChangeSystemLanguage?.(next);
+                    void apiRequest('/api/organization', {
+                      method: 'PATCH',
+                      body: { defaultLanguage: next },
+                    }).then(() => onRefresh());
+                  }}
+                  className="w-full h-9 px-3 text-sm bg-white border border-slate-300 rounded-lg"
+                >
+                  <option value="bn">বাংলা (Bangla)</option>
+                  <option value="en">English (ইংরেজি)</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="org-doc-lang" className="block text-xs text-slate-600 mb-1">
+                  {isBn ? 'মেমো, ইনভয়েস ও স্টেটমেন্টের ভাষা' : 'Memo, Invoice & Statement Language'}
+                </label>
+                <select
+                  id="org-doc-lang"
+                  data-testid="org-doc-lang"
+                  value={documentLanguage}
+                  onChange={(e) => {
+                    const next = e.target.value as Language;
+                    setDocumentLanguage(next);
+                    void apiRequest('/api/organization', {
+                      method: 'PATCH',
+                      body: { documentLanguage: next },
+                    }).then(() => onRefresh());
+                  }}
+                  className="w-full h-9 px-3 text-sm bg-white border border-slate-300 rounded-lg"
+                >
+                  <option value="bn">বাংলা (Bangla Documents)</option>
+                  <option value="en">English (ইংরেজি ডকুমেন্ট)</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="org-qtn-prefix" className="block text-xs text-slate-600 mb-1">
+                  {isBn ? 'কোটেশন নং প্রিফিক্স' : 'Quotation Prefix'}
+                </label>
+                <input
+                  id="org-qtn-prefix"
+                  type="text"
+                  value={quotationPrefix}
+                  onChange={(e) => setQuotationPrefix(e.target.value.toUpperCase())}
+                  placeholder="QTN"
+                  className="w-full h-9 px-3 text-sm font-mono border border-slate-300 rounded-lg"
+                />
+              </div>
+              <div>
+                <label htmlFor="org-chl-prefix" className="block text-xs text-slate-600 mb-1">
+                  {isBn ? 'ডেলিভারি চালান প্রিফিক্স' : 'Delivery Challan Prefix'}
+                </label>
+                <input
+                  id="org-chl-prefix"
+                  type="text"
+                  value={challanPrefix}
+                  onChange={(e) => setChallanPrefix(e.target.value.toUpperCase())}
+                  placeholder="CHL"
+                  className="w-full h-9 px-3 text-sm font-mono border border-slate-300 rounded-lg"
+                />
               </div>
               <div>
                 <label htmlFor="org-phone" className="block text-xs text-slate-600 mb-1">{isBn ? 'ফোন' : 'Phone'}</label>

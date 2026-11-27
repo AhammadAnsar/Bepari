@@ -21,11 +21,14 @@ export interface Organization {
   currency: string;
   currencySymbol: string;
   defaultLanguage: Language;
+  documentLanguage?: Language;
   inventoryMethod: InventoryMethod;
   vatMode: TaxMode;
   fiscalYearStartMonth: number;
   invoicePrefix: string;
   mushakPrefix: string;
+  quotationPrefix?: string;
+  challanPrefix?: string;
   proprietorName?: string;
   tagline?: string;
   website?: string;
@@ -141,6 +144,8 @@ export interface Product {
   sku: string;
   barcode?: string;
   brand?: string;
+  size?: string;
+  color?: string;
   name: string;
   nameBn: string;
   unit: string;
@@ -176,6 +181,10 @@ export interface ComputedInvoiceLine {
   productId: number | null;
   productSku?: string;
   productUnit?: string;
+  productBrand?: string;
+  productSize?: string;
+  productColor?: string;
+  productDescription?: string;
   description: string;
   quantity: number;
   unitPrice: number;
@@ -193,6 +202,10 @@ export interface Invoice {
   id: number;
   invoiceNumber: string;
   mushakChallanNo: string;
+  poNumber?: string;
+  challanNumber?: string;
+  challanDate?: string;
+  quotationId?: number | null;
   branchId: number;
   branchName?: string;
   branchNameBn?: string;
@@ -219,6 +232,40 @@ export interface Invoice {
   balanceDue: number;
   notes: string;
   journalEntryId: number | null;
+  items?: ComputedInvoiceLine[];
+  createdAt: string;
+}
+
+export type QuotationStatus = 'draft' | 'sent' | 'accepted' | 'converted' | 'expired';
+
+export interface Quotation {
+  id: number;
+  quotationNumber: string;
+  branchId: number;
+  branchName?: string;
+  branchNameBn?: string;
+  branchAddress?: string;
+  branchPhone?: string;
+  customerId: number;
+  customerCode?: string;
+  customerName?: string;
+  customerCompanyName?: string;
+  customerBin?: string;
+  customerAddress?: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  issueDate: string;
+  validUntil: string;
+  poNumber?: string;
+  status: QuotationStatus;
+  subtotal: number;
+  discountTotal: number;
+  sdTotal: number;
+  vatTotal: number;
+  grandTotal: number;
+  notes: string;
+  convertedInvoiceId?: number | null;
+  convertedInvoiceNumber?: string | null;
   items?: ComputedInvoiceLine[];
   createdAt: string;
 }

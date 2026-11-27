@@ -24,6 +24,7 @@ import type {
   Product,
   ProductBranchStock,
   Purchase,
+  Quotation,
   RecurringFrequency,
   RecurringProfile,
   TaxMode,
@@ -41,6 +42,7 @@ export interface ActorContext {
 const SEQUENCE_TABLES = new Set([
   'journal_entries',
   'invoices',
+  'quotations',
   'payments',
   'purchases',
   'expenses',
@@ -278,11 +280,17 @@ export async function getOrganization(db: DbClient, envAdminPasscodeSet = false)
     currency: String(row.currency || 'BDT'),
     currencySymbol: String(row.currency_symbol || '৳'),
     defaultLanguage: (row.default_language as 'bn' | 'en') || 'bn',
+    documentLanguage:
+      (row.document_language as 'bn' | 'en') ||
+      (row.default_language as 'bn' | 'en') ||
+      'bn',
     inventoryMethod: (row.inventory_method as InventoryMethod) || 'weighted_avg',
     vatMode: (row.vat_mode as TaxMode) || 'exclusive',
     fiscalYearStartMonth: Number(row.fiscal_year_start_month || 7),
     invoicePrefix: String(row.invoice_prefix || 'INV'),
     mushakPrefix: String(row.mushak_prefix || 'M63'),
+    quotationPrefix: String(row.quotation_prefix || 'QTN'),
+    challanPrefix: String(row.challan_prefix || 'CHL'),
     proprietorName: String(row.proprietor_name || ''),
     tagline: String(row.tagline || ''),
     website: String(row.website || ''),
@@ -329,6 +337,10 @@ export async function getInvoiceById(db: DbClient, id: number): Promise<Invoice 
     `SELECT ii.product_id as productId,
             COALESCE(p.sku, '') as productSku,
             COALESCE(p.unit, '') as productUnit,
+            COALESCE(p.brand, '') as productBrand,
+            COALESCE(p.size, '') as productSize,
+            COALESCE(p.color, '') as productColor,
+            COALESCE(p.description, '') as productDescription,
             ii.description, ii.quantity, ii.unit_price as unitPrice,
             ii.discount_amount as discountAmount, ii.tax_rule_id as taxRuleId, ii.tax_rate as taxRate,
             ii.sd_rate as sdRate, ii.taxable_value as taxableValue, ii.sd_amount as sdAmount,
@@ -346,6 +358,10 @@ export async function getInvoiceById(db: DbClient, id: number): Promise<Invoice 
     id: Number(row.id),
     invoiceNumber: String(row.invoice_number),
     mushakChallanNo: String(row.mushak_challan_no),
+    poNumber: String(row.po_number || ''),
+    challanNumber: String(row.challan_number || ''),
+    challanDate: String(row.challan_date || row.issue_date || ''),
+    quotationId: row.quotation_id ? Number(row.quotation_id) : null,
     branchId: Number(row.branch_id),
     branchName: String(row.branch_name),
     branchNameBn: String(row.branch_name_bn || ''),
@@ -378,6 +394,73 @@ export async function getInvoiceById(db: DbClient, id: number): Promise<Invoice 
     balanceDue: roundMoney(grandTotal - paidAmount),
     notes: String(row.notes || ''),
     journalEntryId: row.journal_entry_id ? Number(row.journal_entry_id) : null,
+    items,
+    createdAt: String(row.created_at),
+  };
+}
+
+export async function getQuotationById(db: DbClient, id: number): Promise<Quotation | null> {
+  const row = await db.get<Record<string, unknown>>(
+    `SELECT q.*,
+            b.name as branch_name, b.name_bn as branch_name_bn,
+            b.address as branch_address, b.phone as branch_phone,
+            c.code as customer_code, c.name as customer_name,
+            c.company_name as customer_company_name, c.bin_number as customer_bin,
+            c.address as customer_address, c.phone as customer_phone, c.email as customer_email
+     FROM quotations q
+     INNER JOIN branches b ON b.id = q.branch_id
+     INNER JOIN customers c ON c.id = q.customer_id
+     WHERE q.id = ?`,
+    [id]
+  );
+
+  if (!row) return null;
+
+  const items = await db.all<NonNullable<Quotation['items']>[number]>(
+    `SELECT qi.product_id as productId,
+            COALESCE(p.sku, '') as productSku,
+            COALESCE(p.unit, '') as productUnit,
+            COALESCE(p.brand, '') as productBrand,
+            COALESCE(p.size, '') as productSize,
+            COALESCE(p.color, '') as productColor,
+            COALESCE(p.description, '') as productDescription,
+            qi.description, qi.quantity, qi.unit_price as unitPrice,
+            qi.discount_amount as discountAmount, qi.tax_rule_id as taxRuleId, qi.tax_rate as taxRate,
+            qi.sd_rate as sdRate, qi.taxable_value as taxableValue, qi.sd_amount as sdAmount,
+            qi.vat_amount as vatAmount, qi.line_total as lineTotal
+     FROM quotation_items qi
+     LEFT JOIN products p ON p.id = qi.product_id
+     WHERE qi.quotation_id = ?`,
+    [id]
+  );
+
+  return {
+    id: Number(row.id),
+    quotationNumber: String(row.quotation_number),
+    branchId: Number(row.branch_id),
+    branchName: String(row.branch_name),
+    branchNameBn: String(row.branch_name_bn || ''),
+    branchAddress: String(row.branch_address || ''),
+    branchPhone: String(row.branch_phone || ''),
+    customerId: Number(row.customer_id),
+    customerCode: String(row.customer_code || ''),
+    customerName: String(row.customer_name),
+    customerCompanyName: String(row.customer_company_name || ''),
+    customerBin: String(row.customer_bin || ''),
+    customerAddress: String(row.customer_address || ''),
+    customerPhone: String(row.customer_phone || ''),
+    customerEmail: String(row.customer_email || ''),
+    issueDate: String(row.issue_date),
+    validUntil: String(row.valid_until),
+    poNumber: String(row.po_number || ''),
+    status: (row.status as Quotation['status']) || 'sent',
+    subtotal: Number(row.subtotal),
+    discountTotal: Number(row.discount_total),
+    sdTotal: Number(row.sd_total),
+    vatTotal: Number(row.vat_total),
+    grandTotal: Number(row.grand_total),
+    notes: String(row.notes || ''),
+    convertedInvoiceId: row.converted_invoice_id ? Number(row.converted_invoice_id) : null,
     items,
     createdAt: String(row.created_at),
   };
@@ -478,6 +561,8 @@ export async function listProductsWithStock(db: DbClient, branchId?: number): Pr
       sku: String(r.sku),
       barcode: String(r.barcode || r.sku),
       brand: String(r.brand || ''),
+      size: String(r.size || ''),
+      color: String(r.color || ''),
       name: String(r.name),
       nameBn: String(r.name_bn || r.name),
       unit: String(r.unit),
@@ -714,6 +799,19 @@ export async function listAllWorkspaceData(
     if (inv) invoices.push(inv);
   }
 
+  const quotationIds = branchId
+    ? await db.all<{ id: number }>(
+        'SELECT id FROM quotations WHERE branch_id = ? ORDER BY issue_date DESC, id DESC',
+        [branchId]
+      )
+    : await db.all<{ id: number }>('SELECT id FROM quotations ORDER BY issue_date DESC, id DESC');
+
+  const quotations: Quotation[] = [];
+  for (const r of quotationIds) {
+    const q = await getQuotationById(db, Number(r.id));
+    if (q) quotations.push(q);
+  }
+
   const paymentRows = branchId
     ? await db.all<Record<string, unknown>>(
         `SELECT p.*, c.name as customer_name FROM payments p
@@ -912,6 +1010,7 @@ export async function listAllWorkspaceData(
     vendors,
     products,
     invoices,
+    quotations,
     payments,
     purchases,
     expenses,

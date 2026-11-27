@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Minus, Plus, Search, Trash2 } from 'lucide-react';
+import { FileText, Minus, Plus, Search, Trash2, Truck } from 'lucide-react';
 import { computeInvoiceTotals } from '../engine/billing';
 import { formatMoney, todayISO } from '../engine/format';
 import type { Customer, Invoice, Language, PaymentMethod, Product } from '../engine/types';
@@ -12,6 +12,8 @@ interface Props {
   lang: Language;
   activeBranchId: number;
   onCompleted: (invoice: Invoice) => void;
+  onPreviewMemo?: (invoice: Invoice) => void;
+  onPreviewChallan?: (invoice: Invoice) => void;
   onRefresh?: () => Promise<void>;
 }
 
@@ -20,7 +22,15 @@ interface CartRow {
   quantity: number;
 }
 
-export function PosCounterView({ data, lang, activeBranchId, onCompleted, onRefresh }: Props) {
+export function PosCounterView({
+  data,
+  lang,
+  activeBranchId,
+  onCompleted,
+  onPreviewMemo,
+  onPreviewChallan,
+  onRefresh,
+}: Props) {
   const t = DICT[lang];
   const isBn = lang === 'bn';
   const money = (v: number) => formatMoney(v, lang, data.organization.currencySymbol);
@@ -32,9 +42,12 @@ export function PosCounterView({ data, lang, activeBranchId, onCompleted, onRefr
     const walkin = data.customers.find((c) => c.name.toLowerCase().includes('walk-in'));
     return walkin?.id ?? data.customers[0]?.id ?? 0;
   });
+  const [poNumber, setPoNumber] = useState('');
+  const [challanNumber, setChallanNumber] = useState('');
   const [method, setMethod] = useState<PaymentMethod>('cash');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastCompletedInvoice, setLastCompletedInvoice] = useState<Invoice | null>(null);
 
   const availableCustomers = useMemo(() => {
     const existingIds = new Set(data.customers.map((c) => c.id));
@@ -48,7 +61,8 @@ export function PosCounterView({ data, lang, activeBranchId, onCompleted, onRefr
     return (
       p.name.toLowerCase().includes(q) ||
       p.nameBn.toLowerCase().includes(q) ||
-      p.sku.toLowerCase().includes(q)
+      p.sku.toLowerCase().includes(q) ||
+      (p.brand || '').toLowerCase().includes(q)
     );
   });
 
@@ -106,6 +120,9 @@ export function PosCounterView({ data, lang, activeBranchId, onCompleted, onRefr
           customerId,
           issueDate: todayISO(),
           dueDate: todayISO(),
+          poNumber: poNumber.trim(),
+          challanNumber: challanNumber.trim(),
+          challanDate: todayISO(),
           source: 'pos',
           notes: `POS Counter Sale (${method.toUpperCase()})`,
           items: cart.map((c) => ({
@@ -125,6 +142,9 @@ export function PosCounterView({ data, lang, activeBranchId, onCompleted, onRefr
         },
       });
       setCart([]);
+      setPoNumber('');
+      setChallanNumber('');
+      setLastCompletedInvoice(created);
       onCompleted(created);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Checkout failed.');
@@ -143,7 +163,7 @@ export function PosCounterView({ data, lang, activeBranchId, onCompleted, onRefr
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder={isBn ? 'পণ্য বা SKU কোড লিখে খুঁজুন...' : 'Search product by name or SKU...'}
+            placeholder={isBn ? 'পণ্য, ব্র্যান্ড বা SKU কোড লিখে খুঁজুন...' : 'Search product by name, brand, or SKU...'}
             aria-label="Search POS catalog"
             className="w-full h-11 pl-10 pr-4 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-[#0F766E]"
           />
@@ -155,37 +175,41 @@ export function PosCounterView({ data, lang, activeBranchId, onCompleted, onRefr
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {products.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => addToCart(p)}
-                className="text-left p-4 bg-white border border-slate-200 hover:border-[#0F766E] active:scale-[0.98] rounded-2xl sm:rounded-xl transition-all flex flex-col justify-between gap-3"
-              >
-                <div>
-                  <div className="text-sm font-semibold text-slate-900 leading-snug">
-                    {isBn && p.nameBn ? p.nameBn : p.name}
+            {products.map((p) => {
+              const specs = [p.brand, p.size, p.color].filter(Boolean).join(' · ');
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => addToCart(p)}
+                  className="text-left p-4 bg-white border border-slate-200 hover:border-[#0F766E] active:scale-[0.98] rounded-2xl sm:rounded-xl transition-all flex flex-col justify-between gap-3"
+                >
+                  <div>
+                    <div className="text-sm font-semibold text-slate-900 leading-snug">
+                      {isBn && p.nameBn ? p.nameBn : p.name}
+                    </div>
+                    <div className="text-xs text-slate-500 mt-1 font-mono">
+                      {p.sku} · {isBn ? 'মূসক' : 'VAT'} {p.taxRate ?? 15}%
+                    </div>
+                    {specs && <div className="text-[11px] text-slate-500 mt-0.5">{specs}</div>}
                   </div>
-                  <div className="text-xs text-slate-500 mt-1 font-mono">
-                    {p.sku} · {isBn ? 'মূসক' : 'VAT'} {p.taxRate ?? 15}%
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                    <span className="tabular-nums text-sm font-semibold text-[#0F766E]">
+                      {money(p.salePrice)}
+                    </span>
+                    <span
+                      className={`text-xs tabular-nums ${
+                        p.trackInventory && (p.stockQty ?? 0) <= p.reorderLevel
+                          ? 'text-amber-700 font-medium'
+                          : 'text-slate-500'
+                      }`}
+                    >
+                      {p.trackInventory ? `${p.stockQty ?? 0} ${p.unit}` : isBn ? 'সেবা' : 'Service'}
+                    </span>
                   </div>
-                </div>
-                <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                  <span className="tabular-nums text-sm font-semibold text-[#0F766E]">
-                    {money(p.salePrice)}
-                  </span>
-                  <span
-                    className={`text-xs tabular-nums ${
-                      p.trackInventory && (p.stockQty ?? 0) <= p.reorderLevel
-                        ? 'text-amber-700 font-medium'
-                        : 'text-slate-500'
-                    }`}
-                  >
-                    {p.trackInventory ? `${p.stockQty ?? 0} ${p.unit}` : isBn ? 'সেবা' : 'Service'}
-                  </span>
-                </div>
-              </button>
-            ))}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
@@ -208,6 +232,43 @@ export function PosCounterView({ data, lang, activeBranchId, onCompleted, onRefr
         </div>
 
         <div className="p-4 space-y-4">
+          {lastCompletedInvoice && (
+            <div className="p-3 bg-teal-50/70 border border-teal-200 rounded-xl space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold text-[#0F766E]">
+                  {isBn
+                    ? `সর্বশেষ মেমো: ${lastCompletedInvoice.invoiceNumber}`
+                    : `Last Memo: ${lastCompletedInvoice.invoiceNumber}`}
+                </span>
+                <span className="font-mono text-[11px] text-slate-600">
+                  {lastCompletedInvoice.challanNumber}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {onPreviewMemo && (
+                  <button
+                    type="button"
+                    onClick={() => onPreviewMemo(lastCompletedInvoice)}
+                    className="inline-flex items-center justify-center gap-1.5 py-1.5 px-2.5 text-xs font-medium text-slate-800 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-[#0F766E]" />
+                    <span>{isBn ? 'ক্যাশ মেমো' : 'Cash Memo'}</span>
+                  </button>
+                )}
+                {onPreviewChallan && (
+                  <button
+                    type="button"
+                    onClick={() => onPreviewChallan(lastCompletedInvoice)}
+                    className="inline-flex items-center justify-center gap-1.5 py-1.5 px-2.5 text-xs font-semibold text-white bg-[#0F766E] hover:bg-[#115E59] rounded-lg"
+                  >
+                    <Truck className="w-3.5 h-3.5" />
+                    <span>{isBn ? 'ডেলিভারি চালান' : 'Delivery Challan'}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           {error && (
             <div role="alert" className="p-2.5 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg">
               {error}
@@ -233,6 +294,35 @@ export function PosCounterView({ data, lang, activeBranchId, onCompleted, onRefr
               lang={lang}
               placeholder={isBn ? 'কাস্টমার খুঁজুন বা নতুন যোগ করুন...' : 'Search or add customer...'}
             />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label htmlFor="pos-po" className="block text-[11px] text-slate-500 mb-1">
+                {isBn ? 'P.O No (ঐচ্ছিক)' : 'P.O No (Optional)'}
+              </label>
+              <input
+                id="pos-po"
+                type="text"
+                value={poNumber}
+                onChange={(e) => setPoNumber(e.target.value)}
+                placeholder="PO-..."
+                className="w-full h-8 px-2.5 text-xs font-mono border border-slate-200 rounded-lg"
+              />
+            </div>
+            <div>
+              <label htmlFor="pos-challan" className="block text-[11px] text-slate-500 mb-1">
+                {isBn ? 'Challan No (ঐচ্ছিক)' : 'Challan No (Auto)'}
+              </label>
+              <input
+                id="pos-challan"
+                type="text"
+                value={challanNumber}
+                onChange={(e) => setChallanNumber(e.target.value)}
+                placeholder={isBn ? 'স্বয়ংক্রিয়' : 'Auto-generated'}
+                className="w-full h-8 px-2.5 text-xs font-mono border border-slate-200 rounded-lg"
+              />
+            </div>
           </div>
 
           {cart.length === 0 ? (

@@ -8,6 +8,7 @@ import {
   hashPasswordAsync,
   hasPermission,
   isWorkspacePasswordLockedAsync,
+  resolveDeviceOrCookieSessionAsync,
   verifyPasswordAsync,
   verifyWorkspaceAdminPasscodeAsync,
   type AuthSessionUser,
@@ -17,9 +18,13 @@ import {
 import type { DbClient } from './dbClient.ts';
 import {
   adjustProductStockTransaction,
+  bulkImportCustomersTransaction,
+  bulkImportProductsTransaction,
+  convertQuotationToInvoiceTransaction,
   createExpenseTransaction,
   createInvoiceTransaction,
   createPurchaseTransaction,
+  createQuotationTransaction,
   deleteBranchRecord,
   deleteCustomerRecord,
   deleteExpenseTransaction,
@@ -27,12 +32,14 @@ import {
   deletePaymentTransaction,
   deleteProductRecord,
   deletePurchaseTransaction,
+  deleteQuotationTransaction,
   deleteRecurringProfile,
   deleteTaxRule,
   deleteUserRecord,
   deleteVendorRecord,
   getCustomerStatementData,
   getInvoiceById,
+  getQuotationById,
   listAllWorkspaceData,
   listProductStockMovements,
   onboardWorkspaceTransaction,
@@ -49,6 +56,7 @@ import {
   updatePaymentTransaction,
   updateProductRecord,
   updatePurchaseTransaction,
+  updateQuotationTransaction,
   updateRecurringProfile,
   updateTaxRule,
   updateUserRecord,
@@ -65,14 +73,22 @@ export interface ApiRouterOptions {
   onMutate?: () => Promise<void>;
 }
 
-function jsonResponse(data: unknown, status = 200): Response {
+function jsonResponse(data: unknown, status = 200, extraHeaders?: Record<string, string>): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': 'no-store',
+      ...(extraHeaders || {}),
     },
   });
+}
+
+function buildSessionCookieHeader(token: string | null): string {
+  if (!token) {
+    return 'bepari_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=None; Partitioned';
+  }
+  return `bepari_session=${token}; Path=/; Max-Age=2592000; HttpOnly; Secure; SameSite=None; Partitioned`;
 }
 
 async function readJsonBody(request: Request): Promise<Record<string, unknown>> {
@@ -131,7 +147,12 @@ async function routeApiRequest(
   const requireAuth = async (
     permission?: Permission
   ): Promise<{ user: AuthSessionUser; sessionToken: string } | Response> => {
-    const auth = await authenticateBearerTokenAsync(db, request.headers.get('authorization'));
+    const hasCustomHeader = Boolean(request.headers.get('x-requested-with'));
+    const auth = await authenticateBearerTokenAsync(
+      db,
+      request.headers.get('authorization'),
+      hasCustomHeader ? request.headers.get('cookie') : null
+    );
     if (!auth) {
       return jsonResponse({ error: 'Authentication required.' }, 401);
     }
@@ -221,13 +242,33 @@ async function routeApiRequest(
           permissions: getRolePermissions(result.user.role),
           locked: true,
         },
-        201
+        201,
+        { 'Set-Cookie': buildSessionCookieHeader(token) }
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to complete onboarding.';
       const status = message.includes('already been completed') ? 403 : 400;
       return jsonResponse({ error: message }, status);
     }
+  }
+
+  if (method === 'GET' && pathname === '/api/auth/session') {
+    const resolved = await resolveDeviceOrCookieSessionAsync(
+      db,
+      request.headers.get('authorization'),
+      request.headers.get('cookie'),
+      opts.runtimeEngine === 'on-device'
+    );
+    if (!resolved) {
+      return jsonResponse({ error: 'No active session.' }, 401);
+    }
+    const locked = await isWorkspacePasswordLockedAsync(db, opts.envAdminPasscode);
+    return jsonResponse({
+      token: resolved.sessionToken,
+      user: resolved.user,
+      permissions: getRolePermissions(resolved.user.role),
+      locked,
+    });
   }
 
   if (method === 'POST' && pathname === '/api/auth/bootstrap-session') {
@@ -258,18 +299,22 @@ async function routeApiRequest(
       return jsonResponse({ error: 'Workspace requires first-run onboarding.' }, 403);
     }
     const token = await createSessionAsync(db, Number(target.id));
-    return jsonResponse({
-      token,
-      user: {
-        id: Number(target.id),
-        name: target.name,
-        email: target.email,
-        role: target.role,
-        branchId: target.branchId !== null ? Number(target.branchId) : null,
+    return jsonResponse(
+      {
+        token,
+        user: {
+          id: Number(target.id),
+          name: target.name,
+          email: target.email,
+          role: target.role,
+          branchId: target.branchId !== null ? Number(target.branchId) : null,
+        },
+        permissions: getRolePermissions(target.role),
+        locked: false,
       },
-      permissions: getRolePermissions(target.role),
-      locked: false,
-    });
+      200,
+      { 'Set-Cookie': buildSessionCookieHeader(token) }
+    );
   }
 
   if (method === 'POST' && pathname === '/api/auth/login') {
@@ -323,25 +368,33 @@ async function routeApiRequest(
       Number(user.id),
       `Signed in as ${user.role}`
     );
-    return jsonResponse({
-      token,
-      user: {
-        id: Number(user.id),
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        branchId: user.branch_id !== null ? Number(user.branch_id) : null,
+    return jsonResponse(
+      {
+        token,
+        user: {
+          id: Number(user.id),
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          branchId: user.branch_id !== null ? Number(user.branch_id) : null,
+        },
+        permissions: getRolePermissions(user.role),
+        locked: await isWorkspacePasswordLockedAsync(db, opts.envAdminPasscode),
       },
-      permissions: getRolePermissions(user.role),
-      locked: await isWorkspacePasswordLockedAsync(db, opts.envAdminPasscode),
-    });
+      200,
+      { 'Set-Cookie': buildSessionCookieHeader(token) }
+    );
   }
 
   if (method === 'POST' && pathname === '/api/auth/logout') {
     const auth = await requireAuth();
     if (auth instanceof Response) return auth;
-    await db.run('DELETE FROM sessions WHERE token = ?', [auth.sessionToken]);
-    return jsonResponse({ ok: true });
+    if (opts.runtimeEngine === 'on-device') {
+      await db.run('DELETE FROM sessions');
+    } else {
+      await db.run('DELETE FROM sessions WHERE token = ?', [auth.sessionToken]);
+    }
+    return jsonResponse({ ok: true }, 200, { 'Set-Cookie': buildSessionCookieHeader(null) });
   }
 
   if (method === 'POST' && pathname === '/api/auth/set-lock') {
@@ -381,18 +434,22 @@ async function routeApiRequest(
       return jsonResponse({ error: 'User not found.' }, 404);
     }
     const token = await createSessionAsync(db, Number(target.id));
-    return jsonResponse({
-      token,
-      user: {
-        id: Number(target.id),
-        name: target.name,
-        email: target.email,
-        role: target.role,
-        branchId: target.branchId !== null ? Number(target.branchId) : null,
+    return jsonResponse(
+      {
+        token,
+        user: {
+          id: Number(target.id),
+          name: target.name,
+          email: target.email,
+          role: target.role,
+          branchId: target.branchId !== null ? Number(target.branchId) : null,
+        },
+        permissions: getRolePermissions(target.role),
+        locked: false,
       },
-      permissions: getRolePermissions(target.role),
-      locked: false,
-    });
+      200,
+      { 'Set-Cookie': buildSessionCookieHeader(token) }
+    );
   }
 
   // ---------------- Workspace Snapshot ----------------
@@ -452,6 +509,23 @@ async function routeApiRequest(
       return jsonResponse({ id: Number(info.lastInsertRowid), code }, 201);
     } catch (err) {
       return jsonResponse({ error: err instanceof Error ? err.message : 'Failed to create customer.' }, 400);
+    }
+  }
+
+  if (method === 'POST' && pathname === '/api/customers/bulk') {
+    const auth = await requireAuth('invoice:write');
+    if (auth instanceof Response) return auth;
+    try {
+      const body = await readJsonBody(request);
+      const items = Array.isArray(body.items) ? body.items : [];
+      const result = await bulkImportCustomersTransaction(
+        db,
+        items as Parameters<typeof bulkImportCustomersTransaction>[1],
+        { name: auth.user.name, role: auth.user.role }
+      );
+      return jsonResponse(result, 201);
+    } catch (err) {
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Failed to bulk import customers.' }, 400);
     }
   }
 
@@ -587,6 +661,8 @@ async function routeApiRequest(
         sku,
         barcode,
         brand,
+        size,
+        color,
         name,
         nameBn,
         unit,
@@ -612,12 +688,14 @@ async function routeApiRequest(
       const safeImageUrl = sanitizeProductImageUrl(imageUrl);
 
       const info = await db.run(
-        `INSERT INTO products (sku, barcode, brand, name, name_bn, unit, category, hs_code, description, image_url, is_active, track_inventory, sale_price, cost_price, tax_rule_id, reorder_level)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO products (sku, barcode, brand, size, color, name, name_bn, unit, category, hs_code, description, image_url, is_active, track_inventory, sale_price, cost_price, tax_rule_id, reorder_level)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           finalSku,
           finalBarcode,
           String(brand || '').trim(),
+          String(size || '').trim(),
+          String(color || '').trim(),
           String(name).trim(),
           String(nameBn || name).trim(),
           String(unit || 'pcs').trim(),
@@ -672,6 +750,25 @@ async function routeApiRequest(
       return jsonResponse({ id: productId, sku: finalSku }, 201);
     } catch (err) {
       return jsonResponse({ error: err instanceof Error ? err.message : 'Failed to create product.' }, 400);
+    }
+  }
+
+  if (method === 'POST' && pathname === '/api/products/bulk') {
+    const auth = await requireAuth('inventory:write');
+    if (auth instanceof Response) return auth;
+    try {
+      const body = await readJsonBody(request);
+      const items = Array.isArray(body.items) ? body.items : [];
+      const branchId = Number(body.branchId) || 1;
+      const result = await bulkImportProductsTransaction(
+        db,
+        items as Parameters<typeof bulkImportProductsTransaction>[1],
+        branchId,
+        { name: auth.user.name, role: auth.user.role }
+      );
+      return jsonResponse(result, 201);
+    } catch (err) {
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Failed to bulk import products.' }, 400);
     }
   }
 
@@ -803,6 +900,10 @@ async function routeApiRequest(
           customerId: Number(body.customerId),
           issueDate: String(body.issueDate),
           dueDate: String(body.dueDate),
+          poNumber: body.poNumber ? String(body.poNumber) : '',
+          challanNumber: body.challanNumber ? String(body.challanNumber) : '',
+          challanDate: body.challanDate ? String(body.challanDate) : '',
+          quotationId: body.quotationId ? Number(body.quotationId) : null,
           notes: body.notes ? String(body.notes) : '',
           source: body.source === 'pos' ? 'pos' : 'invoice',
           items: body.items as Parameters<typeof createInvoiceTransaction>[1]['items'],
@@ -843,6 +944,9 @@ async function routeApiRequest(
           customerId: Number(body.customerId),
           issueDate: String(body.issueDate),
           dueDate: String(body.dueDate),
+          poNumber: body.poNumber !== undefined ? String(body.poNumber) : undefined,
+          challanNumber: body.challanNumber !== undefined ? String(body.challanNumber) : undefined,
+          challanDate: body.challanDate !== undefined ? String(body.challanDate) : undefined,
           notes: body.notes ? String(body.notes) : '',
           items: body.items as Parameters<typeof updateInvoiceTransaction>[2]['items'],
         },
@@ -867,6 +971,117 @@ async function routeApiRequest(
       return jsonResponse(result);
     } catch (err) {
       return jsonResponse({ error: err instanceof Error ? err.message : 'Failed to delete invoice.' }, 400);
+    }
+  }
+
+  // ---------------- Quotations ----------------
+
+  if (method === 'POST' && pathname === '/api/quotations') {
+    const auth = await requireAuth('invoice:write');
+    if (auth instanceof Response) return auth;
+    try {
+      const body = await readJsonBody(request);
+      const quotation = await createQuotationTransaction(
+        db,
+        {
+          branchId: Number(body.branchId) || 1,
+          customerId: Number(body.customerId),
+          issueDate: String(body.issueDate),
+          validUntil: String(body.validUntil || body.issueDate),
+          poNumber: body.poNumber ? String(body.poNumber) : '',
+          status: (body.status as Parameters<typeof createQuotationTransaction>[1]['status']) || 'sent',
+          notes: body.notes ? String(body.notes) : '',
+          items: body.items as Parameters<typeof createQuotationTransaction>[1]['items'],
+        },
+        { name: auth.user.name, role: auth.user.role }
+      );
+      return jsonResponse(quotation, 201);
+    } catch (err) {
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Failed to create quotation.' }, 400);
+    }
+  }
+
+  const quotConvertMatch = pathname.match(/^\/api\/quotations\/([^/]+)\/convert$/);
+  if (quotConvertMatch && method === 'POST') {
+    const auth = await requireAuth('invoice:write');
+    if (auth instanceof Response) return auth;
+    try {
+      const id = parsePositiveId(quotConvertMatch[1]);
+      if (!id) return jsonResponse({ error: 'Invalid quotation ID.' }, 400);
+      const body: Record<string, unknown> = await readJsonBody(request).catch(() => ({}));
+      const converted = await convertQuotationToInvoiceTransaction(
+        db,
+        id,
+        {
+          issueDate: body.issueDate ? String(body.issueDate) : undefined,
+          dueDate: body.dueDate ? String(body.dueDate) : undefined,
+          poNumber: body.poNumber !== undefined ? String(body.poNumber) : undefined,
+          challanNumber: body.challanNumber ? String(body.challanNumber) : undefined,
+          challanDate: body.challanDate ? String(body.challanDate) : undefined,
+          immediatePayment: body.immediatePayment as Parameters<
+            typeof convertQuotationToInvoiceTransaction
+          >[2]['immediatePayment'],
+        },
+        { name: auth.user.name, role: auth.user.role }
+      );
+      return jsonResponse(converted, 201);
+    } catch (err) {
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Failed to convert quotation.' }, 400);
+    }
+  }
+
+  const quotIdMatch = pathname.match(/^\/api\/quotations\/([^/]+)$/);
+  if (quotIdMatch && method === 'GET') {
+    const auth = await requireAuth('read');
+    if (auth instanceof Response) return auth;
+    const id = parsePositiveId(quotIdMatch[1]);
+    if (!id) return jsonResponse({ error: 'Invalid quotation ID.' }, 400);
+    const q = await getQuotationById(db, id);
+    if (!q) return jsonResponse({ error: 'Quotation not found.' }, 404);
+    return jsonResponse(q);
+  }
+
+  if (quotIdMatch && method === 'PUT') {
+    const auth = await requireAuth('invoice:write');
+    if (auth instanceof Response) return auth;
+    try {
+      const id = parsePositiveId(quotIdMatch[1]);
+      if (!id) return jsonResponse({ error: 'Invalid quotation ID.' }, 400);
+      const body = await readJsonBody(request);
+      const updated = await updateQuotationTransaction(
+        db,
+        id,
+        {
+          branchId: Number(body.branchId) || 1,
+          customerId: Number(body.customerId),
+          issueDate: String(body.issueDate),
+          validUntil: String(body.validUntil || body.issueDate),
+          poNumber: body.poNumber !== undefined ? String(body.poNumber) : undefined,
+          status: body.status as Parameters<typeof updateQuotationTransaction>[2]['status'],
+          notes: body.notes ? String(body.notes) : '',
+          items: body.items as Parameters<typeof updateQuotationTransaction>[2]['items'],
+        },
+        { name: auth.user.name, role: auth.user.role }
+      );
+      return jsonResponse(updated);
+    } catch (err) {
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Failed to update quotation.' }, 400);
+    }
+  }
+
+  if (quotIdMatch && method === 'DELETE') {
+    const auth = await requireAuth('invoice:write');
+    if (auth instanceof Response) return auth;
+    try {
+      const id = parsePositiveId(quotIdMatch[1]);
+      if (!id) return jsonResponse({ error: 'Invalid quotation ID.' }, 400);
+      const result = await deleteQuotationTransaction(db, id, {
+        name: auth.user.name,
+        role: auth.user.role,
+      });
+      return jsonResponse(result);
+    } catch (err) {
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Failed to delete quotation.' }, 400);
     }
   }
 
@@ -1475,10 +1690,13 @@ async function routeApiRequest(
         currency,
         currencySymbol,
         defaultLanguage,
+        documentLanguage,
         inventoryMethod,
         vatMode,
         invoicePrefix,
         mushakPrefix,
+        quotationPrefix,
+        challanPrefix,
         proprietorName,
         tagline,
         website,
@@ -1505,10 +1723,13 @@ async function routeApiRequest(
           currency = COALESCE(?, currency),
           currency_symbol = COALESCE(?, currency_symbol),
           default_language = COALESCE(?, default_language),
+          document_language = COALESCE(?, document_language),
           inventory_method = COALESCE(?, inventory_method),
           vat_mode = COALESCE(?, vat_mode),
           invoice_prefix = COALESCE(?, invoice_prefix),
           mushak_prefix = COALESCE(?, mushak_prefix),
+          quotation_prefix = COALESCE(?, quotation_prefix),
+          challan_prefix = COALESCE(?, challan_prefix),
           proprietor_name = COALESCE(?, proprietor_name),
           tagline = COALESCE(?, tagline),
           website = COALESCE(?, website),
@@ -1527,11 +1748,18 @@ async function routeApiRequest(
           clampOpt(address, 260),
           clampOpt(currency, 16),
           clampOpt(currencySymbol, 8),
-          typeof defaultLanguage === 'string' ? defaultLanguage : null,
+          typeof defaultLanguage === 'string' && (defaultLanguage === 'bn' || defaultLanguage === 'en')
+            ? defaultLanguage
+            : null,
+          typeof documentLanguage === 'string' && (documentLanguage === 'bn' || documentLanguage === 'en')
+            ? documentLanguage
+            : null,
           typeof inventoryMethod === 'string' ? inventoryMethod : null,
           typeof vatMode === 'string' ? vatMode : null,
           clampOpt(invoicePrefix, 24),
           clampOpt(mushakPrefix, 24),
+          clampOpt(quotationPrefix, 24),
+          clampOpt(challanPrefix, 24),
           clampOpt(proprietorName, 120),
           clampOpt(tagline, 160),
           clampOpt(website, 120),

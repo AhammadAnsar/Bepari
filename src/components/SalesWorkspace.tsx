@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Download, Edit3, FileText, Play, Plus, Receipt, Search, Trash2 } from 'lucide-react';
+import { Download, Edit3, FileText, Play, Plus, Receipt, Search, Trash2, Truck } from 'lucide-react';
 import { useFeedback } from '../context/FeedbackContext';
 import { formatDate, formatMoney, todayISO } from '../engine/format';
 import type { Invoice, Language, Payment, RecurringFrequency, RecurringProfile } from '../engine/types';
@@ -18,6 +18,7 @@ interface Props {
   onReceivePayment: (invoice?: Invoice) => void;
   onEditPayment: (payment: Payment) => void;
   onPreviewInvoice: (invoice: Invoice) => void;
+  onPreviewChallan?: (invoice: Invoice) => void;
   onPreviewMushak: (invoice: Invoice) => void;
   onRefresh: () => Promise<void>;
 }
@@ -37,6 +38,7 @@ export function SalesWorkspace({
   onReceivePayment,
   onEditPayment,
   onPreviewInvoice,
+  onPreviewChallan,
   onPreviewMushak,
   onRefresh,
 }: Props) {
@@ -75,6 +77,8 @@ export function SalesWorkspace({
     return (
       inv.invoiceNumber.toLowerCase().includes(q) ||
       inv.mushakChallanNo.toLowerCase().includes(q) ||
+      (inv.challanNumber || '').toLowerCase().includes(q) ||
+      (inv.poNumber || '').toLowerCase().includes(q) ||
       (inv.customerName || '').toLowerCase().includes(q)
     );
   });
@@ -283,7 +287,7 @@ export function SalesWorkspace({
                 type="search"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder={isBn ? 'ইনভয়েস, চালান বা কাস্টমার খুঁজুন...' : 'Search invoice, Mushak, customer...'}
+                placeholder={isBn ? 'ইনভয়েস, চালান, P.O বা কাস্টমার খুঁজুন...' : 'Search invoice, challan, P.O, customer...'}
                 aria-label="Search invoices"
                 className="w-full h-9 pl-9 pr-3 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-[#0F766E]"
               />
@@ -325,7 +329,7 @@ export function SalesWorkspace({
                 <table className="w-full text-sm border-collapse">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-600">
-                      <th className="py-2.5 px-4 text-left font-medium">{isBn ? 'ইনভয়েস ও মূসক' : 'Invoice / Mushak'}</th>
+                      <th className="py-2.5 px-4 text-left font-medium">{isBn ? 'ইনভয়েস ও চালান' : 'Invoice / Challan'}</th>
                       <th className="py-2.5 px-4 text-left font-medium">{t.labels.customer}</th>
                       <th className="py-2.5 px-4 text-left font-medium">{t.labels.date}</th>
                       <th className="py-2.5 px-4 text-left font-medium">{t.labels.status}</th>
@@ -340,7 +344,10 @@ export function SalesWorkspace({
                       <tr key={inv.id} className="hover:bg-slate-50/70">
                         <td className="py-3 px-4">
                           <div className="font-mono text-xs font-medium text-slate-900">{inv.invoiceNumber}</div>
-                          <div className="font-mono text-[11px] text-slate-500">{inv.mushakChallanNo}</div>
+                          <div className="font-mono text-[11px] text-slate-500">
+                            {inv.challanNumber || inv.mushakChallanNo}
+                            {inv.poNumber ? ` · PO: ${inv.poNumber}` : ''}
+                          </div>
                         </td>
                         <td className="py-3 px-4">
                           <div className="text-sm font-medium text-slate-900">{inv.customerName}</div>
@@ -389,10 +396,22 @@ export function SalesWorkspace({
                                 {isBn ? 'পেমেন্ট' : 'Receive'}
                               </button>
                             )}
+                            {onPreviewChallan && (
+                              <button
+                                type="button"
+                                onClick={() => onPreviewChallan(inv)}
+                                title={isBn ? 'ডেলিভারি চালান' : 'Delivery Challan'}
+                                className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-700 hover:text-[#0F766E] hover:bg-slate-100 rounded-md"
+                              >
+                                <Truck className="w-3.5 h-3.5" />
+                                <span>{isBn ? 'চালান' : 'Challan'}</span>
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => onPreviewInvoice(inv)}
                               aria-label={`Preview invoice ${inv.invoiceNumber}`}
+                              title={isBn ? 'ইনভয়েস / ক্যাশ মেমো প্রিভিউ' : 'Preview Invoice / Memo'}
                               className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-md"
                             >
                               <FileText className="w-3.5 h-3.5" />
@@ -409,6 +428,7 @@ export function SalesWorkspace({
                               type="button"
                               onClick={() => onPreviewMushak(inv)}
                               aria-label={`Preview Mushak 6.3 ${inv.mushakChallanNo}`}
+                              title={isBn ? 'মূসক ৬.৩ চালানপত্র' : 'Mushak 6.3'}
                               className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-md"
                             >
                               <Receipt className="w-3.5 h-3.5" />
@@ -480,6 +500,16 @@ export function SalesWorkspace({
                             className="min-h-[36px] px-2.5 py-1.5 text-xs font-medium text-white bg-[#0F766E] rounded-lg active:scale-[0.98]"
                           >
                             {isBn ? 'পেমেন্ট' : 'Pay'}
+                          </button>
+                        )}
+                        {onPreviewChallan && (
+                          <button
+                            type="button"
+                            onClick={() => onPreviewChallan(inv)}
+                            className="min-h-[36px] px-2.5 py-1.5 text-xs font-medium text-slate-700 border border-slate-200 rounded-lg inline-flex items-center gap-1"
+                          >
+                            <Truck className="w-3.5 h-3.5" />
+                            <span>{isBn ? 'চালান' : 'Challan'}</span>
                           </button>
                         )}
                         <button

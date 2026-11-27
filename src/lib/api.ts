@@ -8,11 +8,14 @@ import type {
   Expense,
   FinancialReportSummary,
   Invoice,
+  InvoiceLineInput,
   JournalEntry,
   Organization,
   Payment,
+  PaymentMethod,
   Product,
   Purchase,
+  Quotation,
   RecurringProfile,
   StatementRow,
   StockMovementRecord,
@@ -38,6 +41,7 @@ export interface WorkspacePayload {
   vendors: Vendor[];
   products: Product[];
   invoices: Invoice[];
+  quotations: Quotation[];
   payments: Payment[];
   purchases: Purchase[];
   expenses: Expense[];
@@ -138,6 +142,7 @@ export async function apiRequest<T>(
   const engine = await detectRuntimeEngine();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'X-Requested-With': 'BepariClient',
   };
   if (memoryToken) {
     headers['Authorization'] = `Bearer ${memoryToken}`;
@@ -171,6 +176,7 @@ export async function apiRequest<T>(
   const res = await fetch(url, {
     method,
     headers,
+    credentials: 'same-origin',
     body: method !== 'GET' && method !== 'HEAD' ? bodyStr : undefined,
   });
 
@@ -211,6 +217,10 @@ export function fetchAuthStatus() {
     locked: boolean;
     users: { id: number; name: string; email: string; role: UserRole }[];
   }>('/api/auth/status');
+}
+
+export function fetchCurrentSession() {
+  return apiRequest<SessionInfo>('/api/auth/session');
 }
 
 export function completeOnboardingApi(body: OnboardingPayload) {
@@ -262,6 +272,8 @@ export interface ProductUpsertPayload {
   sku?: string;
   barcode?: string;
   brand?: string;
+  size?: string;
+  color?: string;
   name: string;
   nameBn?: string;
   unit?: string;
@@ -290,6 +302,79 @@ export function updateProductApi(productId: number, body: ProductUpsertPayload) 
   return apiRequest<{ id: number; sku: string }>(`/api/products/${productId}`, {
     method: 'PUT',
     body,
+  });
+}
+
+export function bulkImportProductsApi(items: ProductUpsertPayload[], branchId?: number) {
+  return apiRequest<{ importedCount: number; updatedCount: number }>('/api/products/bulk', {
+    method: 'POST',
+    body: { items, branchId },
+  });
+}
+
+export interface CustomerBulkImportItem {
+  name: string;
+  nameBn?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  binNumber?: string;
+  creditLimit?: number;
+  openingBalance?: number;
+}
+
+export function bulkImportCustomersApi(items: CustomerBulkImportItem[]) {
+  return apiRequest<{ importedCount: number; updatedCount: number }>('/api/customers/bulk', {
+    method: 'POST',
+    body: { items },
+  });
+}
+
+export interface QuotationUpsertPayload {
+  customerId: number;
+  branchId: number;
+  issueDate: string;
+  validUntil?: string;
+  poNumber?: string;
+  status?: 'draft' | 'sent' | 'accepted' | 'converted' | 'expired';
+  notes?: string;
+  items: InvoiceLineInput[];
+}
+
+export function createQuotationApi(body: QuotationUpsertPayload) {
+  return apiRequest<{ quotation: Quotation }>('/api/quotations', {
+    method: 'POST',
+    body,
+  });
+}
+
+export function updateQuotationApi(quotationId: number, body: QuotationUpsertPayload) {
+  return apiRequest<{ quotation: Quotation }>(`/api/quotations/${quotationId}`, {
+    method: 'PUT',
+    body,
+  });
+}
+
+export function deleteQuotationApi(quotationId: number) {
+  return apiRequest<{ ok: boolean }>(`/api/quotations/${quotationId}`, {
+    method: 'DELETE',
+  });
+}
+
+export function convertQuotationToInvoiceApi(
+  quotationId: number,
+  body?: {
+    issueDate?: string;
+    dueDate?: string;
+    challanNumber?: string;
+    challanDate?: string;
+    paidNow?: number;
+    paymentMethod?: PaymentMethod;
+  }
+) {
+  return apiRequest<{ invoice: Invoice; quotation: Quotation }>(`/api/quotations/${quotationId}/convert`, {
+    method: 'POST',
+    body: body || {},
   });
 }
 

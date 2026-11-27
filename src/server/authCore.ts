@@ -208,7 +208,7 @@ export async function verifyWorkspaceAdminPasscodeAsync(
 
 export async function createSessionAsync(db: DbClient, userId: number): Promise<string> {
   const token = generateSessionToken();
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
   await db.run('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)', [
     token,
     userId,
@@ -217,14 +217,32 @@ export async function createSessionAsync(db: DbClient, userId: number): Promise<
   return token;
 }
 
+export function extractSessionCookieToken(cookieHeader: string | null): string | null {
+  if (!cookieHeader) return null;
+  const parts = cookieHeader.split(';');
+  for (const part of parts) {
+    const [rawName, ...rest] = part.trim().split('=');
+    if (rawName === 'bepari_session') {
+      const value = rest.join('=').trim();
+      if (value && /^[0-9a-fA-F]{32,128}$/.test(value)) {
+        return value;
+      }
+    }
+  }
+  return null;
+}
+
 export async function authenticateBearerTokenAsync(
   db: DbClient,
-  authHeader: string | null
+  authHeader: string | null,
+  cookieHeader?: string | null
 ): Promise<{ user: AuthSessionUser; sessionToken: string } | null> {
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return null;
+  let token = '';
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.slice('Bearer '.length).trim();
+  } else if (cookieHeader) {
+    token = extractSessionCookieToken(cookieHeader) || '';
   }
-  const token = authHeader.slice('Bearer '.length).trim();
   if (!token) return null;
 
   const row = await db.get<{
@@ -251,11 +269,57 @@ export async function authenticateBearerTokenAsync(
   return {
     sessionToken: row.token,
     user: {
-      id: row.id,
+      id: Number(row.id),
       name: row.name,
       email: row.email,
       role: row.role,
-      branchId: row.branch_id,
+      branchId: row.branch_id !== null ? Number(row.branch_id) : null,
     },
   };
 }
+
+export async function resolveDeviceOrCookieSessionAsync(
+  db: DbClient,
+  authHeader: string | null,
+  cookieHeader: string | null,
+  isOnDeviceRuntime: boolean
+): Promise<{ user: AuthSessionUser; sessionToken: string } | null> {
+  const direct = await authenticateBearerTokenAsync(db, authHeader, cookieHeader);
+  if (direct) return direct;
+
+  if (!isOnDeviceRuntime) return null;
+
+  const nowIso = new Date().toISOString();
+  const row = await db.get<{
+    token: string;
+    expires_at: string;
+    id: number;
+    name: string;
+    email: string;
+    role: UserRole;
+    branch_id: number | null;
+    is_active: number;
+  }>(
+    `SELECT s.token, s.expires_at, u.id, u.name, u.email, u.role, u.branch_id, u.is_active
+     FROM sessions s
+     INNER JOIN users u ON u.id = s.user_id
+     WHERE u.is_active = 1 AND s.expires_at > ?
+     ORDER BY s.created_at DESC
+     LIMIT 1`,
+    [nowIso]
+  );
+
+  if (!row) return null;
+
+  return {
+    sessionToken: row.token,
+    user: {
+      id: Number(row.id),
+      name: row.name,
+      email: row.email,
+      role: row.role,
+      branchId: row.branch_id !== null ? Number(row.branch_id) : null,
+    },
+  };
+}
+

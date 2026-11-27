@@ -12,6 +12,7 @@ import {
   ReceiptText,
   Search,
   Trash2,
+  Upload,
   User,
   Wallet,
   X,
@@ -21,6 +22,7 @@ import { formatDate, formatMoney, formatNumber } from '../engine/format';
 import type { Customer, Invoice, Language } from '../engine/types';
 import { DICT } from '../i18n/translations';
 import { apiRequest, type WorkspacePayload } from '../lib/api';
+import { BulkImportModal } from './BulkImportModal';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 
 interface Props {
@@ -81,6 +83,7 @@ export function CustomersWorkspace({
   const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
 
   useEffect(() => {
     if (openFormToken && openFormToken > 0) {
@@ -259,15 +262,25 @@ export function CustomersWorkspace({
               : 'Manage customer profiles, credit limits, receivables, and PDF account statements.'}
           </p>
         </div>
-        <button
-          type="button"
-          data-testid="add-customer-btn"
-          onClick={openCreateModal}
-          className="min-h-[40px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-[#0F766E] hover:bg-[#115E59] rounded-xl sm:rounded-lg transition-colors whitespace-nowrap shrink-0"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>{t.actions.newCustomer}</span>
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => setBulkImportOpen(true)}
+            className="min-h-[40px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl sm:rounded-lg transition-colors whitespace-nowrap"
+          >
+            <Upload className="w-3.5 h-3.5 text-[#0F766E]" />
+            <span>{isBn ? 'বাল্ক ইমপোর্ট' : 'Bulk Import'}</span>
+          </button>
+          <button
+            type="button"
+            data-testid="add-customer-btn"
+            onClick={openCreateModal}
+            className="min-h-[40px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-[#0F766E] hover:bg-[#115E59] rounded-xl sm:rounded-lg transition-colors whitespace-nowrap"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>{t.actions.newCustomer}</span>
+          </button>
+        </div>
       </div>
 
       {/* 4-KPI Hairline Summary Strip */}
@@ -919,6 +932,14 @@ export function CustomersWorkspace({
           setDeleteError(null);
         }}
         onConfirm={handleConfirmDelete}
+      />
+
+      <BulkImportModal
+        open={bulkImportOpen}
+        mode="customers"
+        lang={lang}
+        onClose={() => setBulkImportOpen(false)}
+        onImported={onRefresh}
       />
     </div>
   );

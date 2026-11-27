@@ -30,6 +30,8 @@ export async function updateProductRecord(
     sku?: string;
     barcode?: string;
     brand?: string;
+    size?: string;
+    color?: string;
     name: string;
     nameBn?: string;
     unit?: string;
@@ -61,7 +63,7 @@ export async function updateProductRecord(
 
     await tx.run(
       `UPDATE products
-       SET sku = ?, barcode = ?, brand = ?, name = ?, name_bn = ?, unit = ?, category = ?,
+       SET sku = ?, barcode = ?, brand = ?, size = ?, color = ?, name = ?, name_bn = ?, unit = ?, category = ?,
            hs_code = ?, description = ?, image_url = ?, is_active = ?, track_inventory = ?,
            sale_price = ?, cost_price = ?, tax_rule_id = ?, reorder_level = ?
        WHERE id = ?`,
@@ -69,6 +71,8 @@ export async function updateProductRecord(
         finalSku,
         String(input.barcode || finalSku).trim(),
         String(input.brand || '').trim(),
+        String(input.size || '').trim(),
+        String(input.color || '').trim(),
         name,
         String(input.nameBn || name).trim(),
         String(input.unit || 'pcs').trim(),
@@ -647,6 +651,267 @@ export async function deleteProductRecord(
   });
 }
 
+export interface BulkProductImportRow {
+  sku?: string;
+  barcode?: string;
+  brand?: string;
+  size?: string;
+  color?: string;
+  name: string;
+  nameBn?: string;
+  unit?: string;
+  category?: string;
+  hsCode?: string;
+  description?: string;
+  salePrice?: number;
+  costPrice?: number;
+  reorderLevel?: number;
+  initialStock?: number;
+}
+
+export async function bulkImportProductsTransaction(
+  db: DbClient,
+  items: BulkProductImportRow[],
+  branchId: number,
+  actor: ActorContext
+): Promise<{ imported: number; updated: number }> {
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new Error('No product rows provided for bulk import.');
+  }
+  if (items.length > 500) {
+    throw new Error('Maximum 500 products can be imported in a single batch.');
+  }
+
+  return db.transaction(async (tx) => {
+    let maxId = Number(
+      (await tx.get<{ m: number }>('SELECT COALESCE(MAX(id),0) as m FROM products'))?.m || 0
+    );
+    let imported = 0;
+    let updated = 0;
+    const bId = Number(branchId) || 1;
+    const today = todayISO();
+
+    for (const raw of items) {
+      const name = String(raw.name || raw.nameBn || '').trim();
+      if (!name) continue;
+      maxId += 1;
+      const sku = String(raw.sku || '').trim() || `PRD-${String(maxId + 100)}`;
+      const barcode = String(raw.barcode || '').trim() || sku;
+      const brand = String(raw.brand || '').trim();
+      const size = String(raw.size || '').trim();
+      const color = String(raw.color || '').trim();
+      const nameBn = String(raw.nameBn || name).trim();
+      const unit = String(raw.unit || 'pcs').trim() || 'pcs';
+      const category = String(raw.category || 'General').trim() || 'General';
+      const hsCode = String(raw.hsCode || '').trim();
+      const description = String(raw.description || '').trim();
+      const salePrice = Math.max(0, roundMoney(Number(raw.salePrice) || 0));
+      const costPrice = Math.max(0, roundMoney(Number(raw.costPrice) || 0));
+      const reorderLevel = Math.max(0, Number(raw.reorderLevel) || 5);
+      const initialStock = Math.max(0, Number(raw.initialStock) || 0);
+
+      const existing = await tx.get<{ id: number }>(
+        'SELECT id FROM products WHERE LOWER(sku) = LOWER(?)',
+        [sku]
+      );
+
+      let productId = 0;
+      if (existing) {
+        productId = Number(existing.id);
+        await tx.run(
+          `UPDATE products
+           SET barcode = ?, brand = ?, size = ?, color = ?, name = ?, name_bn = ?, unit = ?, category = ?,
+               hs_code = ?, description = ?, sale_price = ?, cost_price = ?, reorder_level = ?
+           WHERE id = ?`,
+          [
+            barcode,
+            brand,
+            size,
+            color,
+            name,
+            nameBn,
+            unit,
+            category,
+            hsCode,
+            description,
+            salePrice,
+            costPrice,
+            reorderLevel,
+            productId,
+          ]
+        );
+        updated += 1;
+      } else {
+        const info = await tx.run(
+          `INSERT INTO products (
+            sku, barcode, brand, size, color, name, name_bn, unit, category, hs_code,
+            description, image_url, is_active, track_inventory, sale_price, cost_price, tax_rule_id, reorder_level
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', 1, 1, ?, ?, 1, ?)`,
+          [
+            sku,
+            barcode,
+            brand,
+            size,
+            color,
+            name,
+            nameBn,
+            unit,
+            category,
+            hsCode,
+            description,
+            salePrice,
+            costPrice,
+            reorderLevel,
+          ]
+        );
+        productId = Number(info.lastInsertRowid);
+        imported += 1;
+      }
+
+      if (initialStock > 0 && productId > 0) {
+        const stockRow = await tx.get<{
+          id: number;
+          quantity: number;
+          avg_cost: number;
+          fifo_lots_json: string;
+        }>('SELECT id, quantity, avg_cost, fifo_lots_json FROM branch_stock WHERE branch_id = ? AND product_id = ?', [
+          bId,
+          productId,
+        ]);
+
+        if (stockRow) {
+          const calc = computeWeightedAvgStockIn(
+            Number(stockRow.quantity || 0),
+            Number(stockRow.avg_cost || costPrice),
+            initialStock,
+            costPrice
+          );
+          const lots: StockLot[] = JSON.parse(stockRow.fifo_lots_json || '[]');
+          lots.push({ qty: initialStock, unitCost: costPrice });
+          await tx.run(
+            'UPDATE branch_stock SET quantity = ?, avg_cost = ?, fifo_lots_json = ? WHERE id = ?',
+            [calc.newQty, calc.newAvgCost, JSON.stringify(lots), stockRow.id]
+          );
+        } else {
+          await tx.run(
+            'INSERT INTO branch_stock (branch_id, product_id, quantity, avg_cost, fifo_lots_json) VALUES (?, ?, ?, ?, ?)',
+            [bId, productId, initialStock, costPrice, JSON.stringify([{ qty: initialStock, unitCost: costPrice }])]
+          );
+        }
+
+        await tx.run(
+          `INSERT INTO stock_movements (branch_id, product_id, movement_type, quantity, unit_cost, total_cost, source_type, source_id, movement_date, notes)
+           VALUES (?, ?, 'in', ?, ?, ?, 'bulk_import', ?, ?, 'Bulk import opening stock')`,
+          [bId, productId, initialStock, costPrice, roundMoney(initialStock * costPrice), productId, today]
+        );
+      }
+    }
+
+    await writeAuditLog(
+      tx,
+      actor,
+      'PRODUCTS_BULK_IMPORTED',
+      'product',
+      'bulk',
+      `Bulk imported ${imported} new and updated ${updated} existing products`
+    );
+
+    return { imported, updated };
+  });
+}
+
+export interface BulkCustomerImportRow {
+  code?: string;
+  name: string;
+  companyName?: string;
+  phone?: string;
+  email?: string;
+  binNumber?: string;
+  address?: string;
+  openingBalance?: number;
+  creditLimit?: number;
+}
+
+export async function bulkImportCustomersTransaction(
+  db: DbClient,
+  items: BulkCustomerImportRow[],
+  actor: ActorContext
+): Promise<{ imported: number; updated: number }> {
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new Error('No customer rows provided for bulk import.');
+  }
+  if (items.length > 500) {
+    throw new Error('Maximum 500 customers can be imported in a single batch.');
+  }
+
+  return db.transaction(async (tx) => {
+    let maxId = Number(
+      (await tx.get<{ m: number }>('SELECT COALESCE(MAX(id),0) as m FROM customers'))?.m || 0
+    );
+    let imported = 0;
+    let updated = 0;
+
+    for (const raw of items) {
+      const name = String(raw.name || '').trim();
+      if (!name) continue;
+      maxId += 1;
+      const code = String(raw.code || '').trim() || `CUST-${String(maxId).padStart(3, '0')}`;
+      const companyName = String(raw.companyName || '').trim();
+      const phone = String(raw.phone || '').trim();
+      const email = String(raw.email || '').trim();
+      const binNumber = String(raw.binNumber || '').trim();
+      const address = String(raw.address || '').trim();
+      const openingBalance = roundMoney(Number(raw.openingBalance) || 0);
+      const creditLimit = Math.max(0, roundMoney(Number(raw.creditLimit) || 0));
+
+      const existing = await tx.get<{ id: number }>(
+        'SELECT id FROM customers WHERE LOWER(code) = LOWER(?) OR (phone != "" AND phone = ?)',
+        [code, phone]
+      );
+
+      if (existing) {
+        await tx.run(
+          `UPDATE customers
+           SET name = ?, company_name = ?, phone = ?, email = ?, bin_number = ?, address = ?,
+               opening_balance = ?, credit_limit = ?
+           WHERE id = ?`,
+          [
+            name,
+            companyName,
+            phone,
+            email,
+            binNumber,
+            address,
+            openingBalance,
+            creditLimit,
+            Number(existing.id),
+          ]
+        );
+        updated += 1;
+      } else {
+        await tx.run(
+          `INSERT INTO customers (
+            code, name, company_name, phone, email, bin_number, address, opening_balance, credit_limit
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [code, name, companyName, phone, email, binNumber, address, openingBalance, creditLimit]
+        );
+        imported += 1;
+      }
+    }
+
+    await writeAuditLog(
+      tx,
+      actor,
+      'CUSTOMERS_BULK_IMPORTED',
+      'customer',
+      'bulk',
+      `Bulk imported ${imported} new and updated ${updated} existing customers`
+    );
+
+    return { imported, updated };
+  });
+}
+
 // Tax Rules
 export async function updateTaxRule(
   db: DbClient,
@@ -1074,6 +1339,8 @@ export async function resetToCleanWorkspace(db: DbClient, actor: ActorContext): 
       'documents',
       'payment_allocations',
       'payments',
+      'quotation_items',
+      'quotations',
       'invoice_items',
       'invoices',
       'purchase_items',

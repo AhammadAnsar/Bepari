@@ -16,6 +16,7 @@ import {
   ShoppingBag,
   SlidersHorizontal,
   Trash2,
+  Upload,
   X,
 } from 'lucide-react';
 import { useFeedback } from '../context/FeedbackContext';
@@ -37,6 +38,7 @@ import {
   type ProductStockStatus,
 } from '../lib/productDirectory';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
+import { BulkImportModal } from './BulkImportModal';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 import { ProductDetailDrawer } from './ProductDetailDrawer';
 import { ProductFormModal } from './ProductFormModal';
@@ -87,6 +89,7 @@ export function ProductsDirectoryWorkspace({
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
 
   const handleConfirmDeleteProduct = async () => {
     if (!deleteTarget) return;
@@ -367,6 +370,15 @@ export function ProductsDirectoryWorkspace({
               {isBn ? 'স্টক ট্রান্সফার' : 'Transfer Stock'}
             </button>
           )}
+
+          <button
+            type="button"
+            onClick={() => setBulkImportOpen(true)}
+            className="min-h-[38px] sm:min-h-0 inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl sm:rounded-lg whitespace-nowrap"
+          >
+            <Upload className="w-3.5 h-3.5 text-[#0F766E]" />
+            <span>{isBn ? 'বাল্ক ইমপোর্ট' : 'Bulk Import'}</span>
+          </button>
 
           <button
             type="button"
@@ -772,6 +784,8 @@ export function ProductsDirectoryWorkspace({
                           <span className="truncate">
                             <span className="font-mono text-slate-700">{p.sku}</span>
                             {p.brand ? ` · ${p.brand}` : ''}
+                            {p.size ? ` · ${p.size}` : ''}
+                            {p.color ? ` · ${p.color}` : ''}
                             {p.category ? ` · ${p.category}` : ''}
                           </span>
                           {isScanHighlighted && (
@@ -1326,6 +1340,15 @@ export function ProductsDirectoryWorkspace({
           }
         }}
         onConfirm={handleConfirmDeleteProduct}
+      />
+
+      <BulkImportModal
+        open={bulkImportOpen}
+        mode="products"
+        lang={lang}
+        activeBranchId={activeBranchId}
+        onClose={() => setBulkImportOpen(false)}
+        onImported={onRefresh}
       />
     </div>
   );

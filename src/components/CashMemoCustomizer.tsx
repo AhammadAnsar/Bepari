@@ -15,7 +15,9 @@ import {
   SlidersHorizontal,
   Sparkles,
   Table2,
+  Trash2,
   Type,
+  Upload,
 } from 'lucide-react';
 import { useFeedback } from '../context/FeedbackContext';
 import type { Branch, Invoice, Language, Organization } from '../engine/types';
@@ -33,6 +35,7 @@ import {
   type CashMemoSettings,
   type CashMemoTemplateCustomization,
   type CashMemoTemplateId,
+  type FooterBrandLogo,
   type ThermalPaperWidth,
 } from '../lib/cashMemoTemplates';
 import { downloadPdfDocument, printThermalReceipt } from '../lib/pdfExport';
@@ -228,6 +231,7 @@ export function CashMemoCustomizer({
     address: '',
   });
   const [saving, setSaving] = useState(false);
+  const [uploadingBrandLogos, setUploadingBrandLogos] = useState(false);
   const [exportingTest, setExportingTest] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -237,6 +241,24 @@ export function CashMemoCustomizer({
     const next = sanitizeCashMemoSettings(org.cashMemoSettings);
     setSettings(next);
   }, [org.cashMemoSettings]);
+
+  // Debounced background auto-save so any customization is persisted automatically across reloads
+  useEffect(() => {
+    const serverClean = JSON.stringify(sanitizeCashMemoSettings(org.cashMemoSettings));
+    const localClean = JSON.stringify(settings);
+    if (serverClean === localClean) return;
+    const timer = window.setTimeout(() => {
+      void apiRequest('/api/organization', {
+        method: 'PATCH',
+        body: { cashMemoSettings: settings },
+      })
+        .then(() => onSaved())
+        .catch(() => {
+          // Handled on explicit save if offline/error
+        });
+    }, 650);
+    return () => window.clearTimeout(timer);
+  }, [settings, org.cashMemoSettings, onSaved]);
 
   // Live merged Organization object for immediate preview of newly filled missing DB fields
   const effectiveOrg = useMemo<Organization>(
@@ -395,6 +417,88 @@ export function CashMemoCustomizer({
         ? `"${selectedMeta.nameBn}" টেমপ্লেটের পরিবর্তন সংরক্ষিত হয়েছে।`
         : `Saved customization changes for "${selectedMeta.nameEn}".`
     );
+  };
+
+  const resizeLogoFileToDataUrl = (file: File): Promise<FooterBrandLogo> =>
+    new Promise((resolve, reject) => {
+      if (!/^image\/(png|jpeg|jpg|webp)$/i.test(file.type)) {
+        reject(new Error(isBn ? 'শুধুমাত্র PNG, JPG বা WebP ফাইল সমর্থিত।' : 'Only PNG, JPG, or WebP files are supported.'));
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const maxW = 180;
+          const maxH = 72;
+          const scale = Math.min(1, maxW / Math.max(1, img.width), maxH / Math.max(1, img.height));
+          const w = Math.max(1, Math.round(img.width * scale));
+          const h = Math.max(1, Math.round(img.height * scale));
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error('Canvas context unavailable'));
+            return;
+          }
+          ctx.drawImage(img, 0, 0, w, h);
+          const dataUrl = canvas.toDataURL('image/png');
+          const cleanName = file.name.replace(/\.[^.]+$/, '').slice(0, 40) || 'Brand';
+          resolve({
+            id: `brand-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            name: cleanName,
+            dataUrl,
+          });
+        };
+        img.onerror = () => reject(new Error(isBn ? 'ইমেজ পড়া যায়নি।' : 'Failed to read image.'));
+        img.src = String(reader.result || '');
+      };
+      reader.onerror = () => reject(new Error(isBn ? 'ফাইল পড়া যায়নি।' : 'Failed to read file.'));
+      reader.readAsDataURL(file);
+    });
+
+  const handleBrandLogosUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files: File[] = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (files.length === 0) return;
+    setUploadingBrandLogos(true);
+    setErrorMessage(null);
+    try {
+      const existing = settings.footerBrandLogos || [];
+      const remainingSlots = Math.max(0, 8 - existing.length);
+      if (remainingSlots === 0) {
+        throw new Error(isBn ? 'সর্বোচ্চ ৮টি ব্র্যান্ড লোগো যুক্ত করা যায়।' : 'Maximum 8 brand logos can be added.');
+      }
+      const processed: FooterBrandLogo[] = [];
+      for (const file of files.slice(0, remainingSlots)) {
+        const item = await resizeLogoFileToDataUrl(file);
+        processed.push(item);
+      }
+      const nextSettings: CashMemoSettings = {
+        ...settings,
+        footerBrandLogos: [...existing, ...processed],
+      };
+      setSettings(nextSettings);
+      await persistSettings(
+        nextSettings,
+        isBn ? 'ফুটার ব্র্যান্ড লোগো সংরক্ষিত হয়েছে।' : 'Footer brand logos saved.'
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to upload brand logo';
+      setErrorMessage(msg);
+      notify({ title: msg, variant: 'error' });
+    } finally {
+      setUploadingBrandLogos(false);
+    }
+  };
+
+  const handleRemoveBrandLogo = (logoId: string) => {
+    const nextLogos = (settings.footerBrandLogos || []).filter((l) => l.id !== logoId);
+    setSettings((prev) => ({
+      ...prev,
+      footerBrandLogos: nextLogos,
+    }));
   };
 
   const handleDownloadSamplePdf = async () => {
@@ -1160,8 +1264,9 @@ export function CashMemoCustomizer({
                 <div className="space-y-2.5 pt-1">
                   {(
                     [
-                      { key: 'showBinNumber', bn: 'বিআইএন (BIN) নম্বর প্রদর্শন (মূসক সহ মেমোতে)', en: 'Show BIN Number (when With Mushak)' },
+                      { key: 'showBinNumber', bn: 'বিআইএন (BIN) নম্বর প্রদর্শন (মূসক সহ ও মূসক ছাড়া উভয় মেমোতে)', en: 'Show BIN Number (on both With-Mushak & Non-Mushak memos)' },
                       { key: 'showMushakRef', bn: 'মূসক ৬.৩ চালান রেফারেন্স প্রদর্শন', en: 'Show Mushak 6.3 Reference' },
+                      { key: 'showPoAndChallan', bn: 'P.O No, Challan No ও Challan Date সারি প্রদর্শন', en: 'Show P.O No, Challan No & Challan Date Bar' },
                       { key: 'showPaymentMethod', bn: 'পেমেন্ট মাধ্যম দেখান (নগদ/বিকাশ/ব্যাংক)', en: 'Show Payment Method' },
                       { key: 'showAmountInWords', bn: 'টাকা (কথায়) / In Words সারি দেখান', en: 'Show Amount in Words Line' },
                       { key: 'showAdvanceAndDue', bn: 'জমা (Advance) ও বকেয়া/জের (Due) সারি দেখান', en: 'Show Paid / Advance & Due Rows' },
@@ -1293,6 +1398,120 @@ export function CashMemoCustomizer({
                         className="w-full h-9 px-3 text-xs border border-slate-300 rounded-lg"
                       />
                     </div>
+                  </div>
+                </div>
+
+                {/* Configurable Product Attributes on Memo & Invoice */}
+                <div className="pt-3 border-t border-slate-200 space-y-2">
+                  <div className="text-[11px] font-semibold text-slate-700 uppercase tracking-wide">
+                    {isBn ? 'মেমো ও ইনভয়েসে পণ্যের বিবরণ কনফিগারেশন' : 'Product Description & Specs on Memos/Invoices'}
+                  </div>
+                  {(
+                    [
+                      { key: 'showProductBrand', bn: 'পণ্যের ব্র্যান্ড (Brand) দেখান', en: 'Show Product Brand' },
+                      { key: 'showProductSize', bn: 'পণ্যের সাইজ (Size) দেখান', en: 'Show Product Size' },
+                      { key: 'showProductColor', bn: 'পণ্যের কালার (Color) দেখান', en: 'Show Product Color' },
+                      { key: 'showProductDescription', bn: 'পণ্যের বিস্তারিত বিবরণ (Description) দেখান', en: 'Show Product Description' },
+                    ] as const
+                  ).map((row) => (
+                    <label
+                      key={row.key}
+                      className="flex items-center justify-between gap-3 py-1 text-xs text-slate-700 cursor-pointer"
+                    >
+                      <span>{isBn ? row.bn : row.en}</span>
+                      <input
+                        type="checkbox"
+                        checked={cfg[row.key]}
+                        onChange={(e) => updateField(row.key, e.target.checked)}
+                        className="h-4 w-4 accent-[#0F766E] rounded shrink-0"
+                      />
+                    </label>
+                  ))}
+                </div>
+
+                {/* Footer Business Slogan & Multi-Brand Logos */}
+                <div className="pt-3 border-t border-slate-200 space-y-2.5">
+                  <div className="text-[11px] font-semibold text-slate-700 uppercase tracking-wide">
+                    {isBn ? 'ফুটার স্লোগান ও ব্র্যান্ডস লোগো' : 'Footer Slogan & Brand Logos'}
+                  </div>
+                  <label className="flex items-center justify-between gap-3 py-1 text-xs text-slate-700 cursor-pointer">
+                    <span>{isBn ? 'ফুটারে বিজনেস স্লোগান প্রদর্শন' : 'Show Business Slogan in Footer'}</span>
+                    <input
+                      type="checkbox"
+                      checked={cfg.showFooterSlogan}
+                      onChange={(e) => updateField('showFooterSlogan', e.target.checked)}
+                      className="h-4 w-4 accent-[#0F766E] rounded shrink-0"
+                    />
+                  </label>
+                  <label className="flex items-center justify-between gap-3 py-1 text-xs text-slate-700 cursor-pointer">
+                    <span>{isBn ? 'ফুটারে ব্র্যান্ডস লোগো সারি প্রদর্শন' : 'Show Brand Logos Row in Footer'}</span>
+                    <input
+                      type="checkbox"
+                      checked={cfg.showFooterBrandLogos}
+                      onChange={(e) => updateField('showFooterBrandLogos', e.target.checked)}
+                      className="h-4 w-4 accent-[#0F766E] rounded shrink-0"
+                    />
+                  </label>
+
+                  <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-medium text-slate-700">
+                        {isBn
+                          ? `ফুটার ব্র্যান্ড লোগো (${(settings.footerBrandLogos || []).length}/8)`
+                          : `Footer Brand Logos (${(settings.footerBrandLogos || []).length}/8)`}
+                      </span>
+                      <label className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-[#0F766E] bg-white border border-teal-300 hover:bg-teal-50 rounded-md cursor-pointer transition-colors">
+                        <Upload className="w-3 h-3" />
+                        <span>
+                          {uploadingBrandLogos
+                            ? isBn
+                              ? 'আপলোড হচ্ছে...'
+                              : 'Uploading...'
+                            : isBn
+                              ? 'লোগো যুক্ত করুন'
+                              : 'Add Logos'}
+                        </span>
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          multiple
+                          disabled={uploadingBrandLogos || (settings.footerBrandLogos || []).length >= 8}
+                          onChange={handleBrandLogosUpload}
+                          className="sr-only"
+                        />
+                      </label>
+                    </div>
+
+                    {(settings.footerBrandLogos || []).length > 0 ? (
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        {(settings.footerBrandLogos || []).map((logo) => (
+                          <div
+                            key={logo.id}
+                            className="relative group bg-white border border-slate-200 rounded-md px-2 py-1 flex items-center gap-1.5"
+                          >
+                            <img
+                              src={logo.dataUrl}
+                              alt={logo.name}
+                              className="h-5 w-auto max-w-[68px] object-contain"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveBrandLogo(logo.id)}
+                              title={isBn ? 'লোগো মুছুন' : 'Remove logo'}
+                              className="text-slate-400 hover:text-rose-600 p-0.5"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-slate-500">
+                        {isBn
+                          ? 'একাধিক ব্র্যান্ড লোগো আপলোড করলে ইনভয়েস ও ক্যাশ মেমোর ফুটারে সারিবদ্ধভাবে প্রদর্শিত হবে।'
+                          : 'Upload multiple brand logos to display them in a horizontal row at the bottom of Invoices and Cash Memos.'}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>

@@ -103,6 +103,8 @@ export function ProductFormModal({
   const [sku, setSku] = useState('');
   const [barcode, setBarcode] = useState('');
   const [brand, setBrand] = useState('');
+  const [size, setSize] = useState('');
+  const [color, setColor] = useState('');
   const [category, setCategory] = useState('General');
   const [unit, setUnit] = useState('pcs');
   const [hsCode, setHsCode] = useState('');
@@ -128,6 +130,8 @@ export function ProductFormModal({
       setSku(product.sku);
       setBarcode(product.barcode || '');
       setBrand(product.brand || '');
+      setSize(product.size || '');
+      setColor(product.color || '');
       setCategory(product.category || 'General');
       setUnit(product.unit || 'pcs');
       setHsCode(product.hsCode || '');
@@ -144,6 +148,8 @@ export function ProductFormModal({
       setSku('');
       setBarcode(generateAutoBarcode());
       setBrand('');
+      setSize('');
+      setColor('');
       setCategory(existingCategories[0] || 'Textiles');
       setUnit('pcs');
       setHsCode('');
@@ -196,6 +202,8 @@ export function ProductFormModal({
           nameBn: nameBn.trim() || name.trim(),
           category: category.trim() || 'General',
           brand: brand.trim(),
+          size: size.trim(),
+          color: color.trim(),
           unit: unit.trim() || 'pcs',
           hsCode: hsCode.trim(),
           salePrice: parsedSale,
@@ -214,6 +222,8 @@ export function ProductFormModal({
           nameBn: nameBn.trim() || name.trim(),
           category: category.trim() || 'General',
           brand: brand.trim(),
+          size: size.trim(),
+          color: color.trim(),
           unit: unit.trim() || 'pcs',
           hsCode: hsCode.trim(),
           salePrice: parsedSale,
@@ -279,8 +289,8 @@ export function ProductFormModal({
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
               {isBn
-                ? 'মূল্য, মূসক হার, HS কোড ও প্রোডাক্ট ছবি নির্ধারণ করুন'
-                : 'Configure pricing, Mushak VAT rule, HS code, and catalog photo'}
+                ? 'মূল্য, ব্র্যান্ড, সাইজ, কালার, মূসক হার ও প্রোডাক্ট ছবি নির্ধারণ করুন'
+                : 'Configure pricing, brand, size, color, Mushak VAT rule, and catalog photo'}
             </p>
           </div>
           <button
@@ -453,6 +463,34 @@ export function ProductFormModal({
                   <option key={c} value={c} />
                 ))}
               </datalist>
+            </div>
+
+            <div>
+              <label htmlFor="pf-size" className="block text-xs font-medium text-slate-700 mb-1">
+                {isBn ? 'সাইজ / মাপ (ঐচ্ছিক)' : 'Size (Optional)'}
+              </label>
+              <input
+                id="pf-size"
+                type="text"
+                value={size}
+                onChange={(e) => setSize(e.target.value)}
+                placeholder={isBn ? 'যেমন: XL / 42 / 500ml' : 'e.g. XL / 42 / 500ml'}
+                className="w-full h-10 sm:h-9 px-3 text-sm border border-slate-300 rounded-xl sm:rounded-lg focus:outline-none focus:border-[#0F766E]"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="pf-color" className="block text-xs font-medium text-slate-700 mb-1">
+                {isBn ? 'কালার / রঙ (ঐচ্ছিক)' : 'Color (Optional)'}
+              </label>
+              <input
+                id="pf-color"
+                type="text"
+                value={color}
+                onChange={(e) => setColor(e.target.value)}
+                placeholder={isBn ? 'যেমন: নেভি ব্লু / সাদা' : 'e.g. Navy Blue / White'}
+                className="w-full h-10 sm:h-9 px-3 text-sm border border-slate-300 rounded-xl sm:rounded-lg focus:outline-none focus:border-[#0F766E]"
+              />
             </div>
           </div>
 
