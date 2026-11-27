@@ -1,9 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Edit3, Lock, Plus, RotateCcw, Shield, Trash2, Upload } from 'lucide-react';
+import { Database, Download, Edit3, Lock, Plus, RotateCcw, Shield, Trash2, Upload } from 'lucide-react';
 import { useFeedback } from '../context/FeedbackContext';
 import type { Branch, InventoryMethod, Language, TaxMode, UserAccount, UserRole } from '../engine/types';
 import { DICT } from '../i18n/translations';
-import { apiRequest, type SessionInfo, type WorkspacePayload } from '../lib/api';
+import {
+  apiRequest,
+  exportDeviceSqliteBackup,
+  getActiveRuntimeEngine,
+  importDeviceSqliteBackup,
+  type SessionInfo,
+  type WorkspacePayload,
+} from '../lib/api';
 import { CashMemoCustomizer } from './CashMemoCustomizer';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 import { OrganizationLogo } from './OrganizationLogo';
@@ -92,6 +99,8 @@ export function SettingsSecurityWorkspace({
   >(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const runtimeEngine = getActiveRuntimeEngine();
 
   const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -334,6 +343,51 @@ export function SettingsSecurityWorkspace({
     }
   };
 
+  const handleDownloadBackup = async () => {
+    setError(null);
+    setBackupBusy(true);
+    try {
+      await exportDeviceSqliteBackup();
+      notify({
+        title: isBn ? 'ডাটাবেজ ব্যাকআপ ডাউনলোড হয়েছে।' : 'SQLite backup downloaded.',
+        description: isBn ? 'ফাইলটি নিরাপদ স্থানে সংরক্ষণ করুন।' : 'Keep your .sqlite backup file in a safe place.',
+        variant: 'success',
+        sound: 'save',
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to export database backup.';
+      setError(msg);
+      notify({ title: msg, variant: 'error' });
+    } finally {
+      setBackupBusy(false);
+    }
+  };
+
+  const handleRestoreBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setError(null);
+    setBackupBusy(true);
+    try {
+      await importDeviceSqliteBackup(file);
+      notify({
+        title: isBn ? 'ডাটাবেজ ব্যাকআপ সফলভাবে রিস্টোর হয়েছে।' : 'Database backup restored successfully.',
+        description: isBn ? 'অ্যাপটি পুনরায় লোড হচ্ছে...' : 'Reloading workspace from restored database...',
+        variant: 'success',
+        sound: 'save',
+      });
+      setTimeout(() => {
+        window.location.reload();
+      }, 350);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to restore database backup.';
+      setError(msg);
+      notify({ title: msg, variant: 'error' });
+      setBackupBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-200 pb-3">
@@ -544,6 +598,65 @@ export function SettingsSecurityWorkspace({
               </button>
             </div>
           </form>
+
+          {/* Database Engine & Device Backup */}
+          <div className="bg-white border border-slate-200 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Database className="w-4 h-4 text-[#0F766E] shrink-0" />
+                <span className="text-sm font-semibold text-slate-900">
+                  {isBn ? 'ডাটাবেজ ইঞ্জিন ও ব্যাকআপ' : 'Database Engine & Backup'}
+                </span>
+                <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-slate-100 text-slate-700">
+                  {runtimeEngine === 'on-device'
+                    ? isBn
+                      ? 'ডিভাইস SQLite (লোকাল)'
+                      : 'On-Device SQLite'
+                    : runtimeEngine === 'cloud-d1'
+                      ? isBn
+                        ? 'Cloudflare D1 ক্লাউড'
+                        : 'Cloudflare D1 Cloud'
+                      : isBn
+                        ? 'সার্ভার SQLite'
+                        : 'Server SQLite'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                {runtimeEngine === 'on-device'
+                  ? isBn
+                    ? 'আপনার সকল হিসাব-নিকাশ, ইনভয়েস ও PBKDF2-হ্যাশকৃত পাসওয়ার্ড এই ডিভাইসের নিজস্ব SQLite ডাটাবেজে সংরক্ষিত হচ্ছে। প্রয়োজনে ব্যাকআপ নিয়ে অন্য ডিভাইসে রিস্টোর করতে পারবেন।'
+                    : 'All ledgers, invoices, and PBKDF2-hashed credentials run directly on this device in real SQLite. Download a .sqlite backup anytime or restore on another device.'
+                  : isBn
+                    ? 'ওয়ার্কস্পেস কেন্দ্রীয় সার্ভার ডাটাবেজের মাধ্যমে সিঙ্ক হচ্ছে।'
+                    : 'Workspace is connected to a central server database.'}
+              </p>
+            </div>
+            {runtimeEngine === 'on-device' && (
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  disabled={backupBusy}
+                  onClick={handleDownloadBackup}
+                  data-testid="download-sqlite-backup"
+                  className="min-h-[38px] inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg whitespace-nowrap"
+                >
+                  <Download className="w-3.5 h-3.5 text-[#0F766E]" />
+                  <span>{isBn ? 'ব্যাকআপ ডাউনলোড (.sqlite)' : 'Download Backup (.sqlite)'}</span>
+                </button>
+                <label className="min-h-[38px] inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-white bg-[#0F766E] hover:bg-[#115E59] rounded-lg cursor-pointer whitespace-nowrap">
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>{backupBusy ? (isBn ? 'কাজ চলছে...' : 'Working...') : isBn ? 'রিস্টোর (.sqlite)' : 'Restore (.sqlite)'}</span>
+                  <input
+                    type="file"
+                    accept=".sqlite,.db"
+                    disabled={backupBusy}
+                    onChange={handleRestoreBackup}
+                    className="sr-only"
+                  />
+                </label>
+              </div>
+            )}
+          </div>
 
           {/* Clean Workspace Reset Control */}
           <div className="bg-white border border-slate-200 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">

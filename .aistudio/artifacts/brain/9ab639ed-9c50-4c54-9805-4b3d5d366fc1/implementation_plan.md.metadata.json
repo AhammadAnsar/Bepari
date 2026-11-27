@@ -1,6 +1,6 @@
 {
-  "summary":  "Comprehensive architecture and UX/UI implementation plan for Zero-Dummy First-Run Owner & Organization Onboarding, Official Attached Bepari App Icon Integration Everywhere, Action Deduplication (Removing Floating Bars & Duplicate Buttons), and Mobile Single-Scroll Ergonomics.",
-  "updatedAt":  "2026-11-27T05:06:55.125655904Z",
+  "summary":  "Revised architecture plan: runs a real on-device SQLite database (sql.js WASM + IndexedDB persistence) by default on Cloudflare Pages with zero 405 errors or mandatory cloud setup, supports seamless opt-in upgrade to Cloudflare D1 or Node SQLite when desired, and fixes the GitHub Actions lockfile error with package-lock.json.",
+  "updatedAt":  "2026-11-27T06:28:39.058653883Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

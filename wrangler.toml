@@ -1,0 +1,15 @@
+name = "bepari"
+compatibility_date = "2025-09-01"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = "./dist"
+
+# Optional Cloud Database Upgrade (Cloudflare D1)
+# Bepari automatically runs an encrypted-passcode, full 21-table SQLite database
+# directly on each user's device (IndexedDB + sql.js WASM) when no D1 binding is attached.
+# To switch to Cloudflare D1 cloud storage later, create a D1 database in Cloudflare,
+# bind it as `DB` in Pages Settings -> Bindings, or uncomment and fill in the block below:
+#
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "bepari-db"
+# database_id = "<YOUR_CLOUDFLARE_D1_DATABASE_ID>"

@@ -1,116 +1,102 @@
-# বেপারী (Bepari) — প্রথমবার ইউজার ও প্রতিষ্ঠান অনবোর্ডিং, অফিসিয়াল অ্যাপ আইকন এবং ক্লিন মোবাইল UX আর্কিটেকচার প্ল্যান
+# On-Device SQLite Database First, Optional Cloud D1 & npm Lockfile Fix
 
-## নিশ্চিতকৃত সিদ্ধান্তসমূহ (Confirmed Decisions)
-- **ডামি ডেটা অপসারণ ও নতুন অনবোর্ডিং**: বর্তমান ডাটাবেজে থাকা পূর্বের সকল প্রি-সিডেড ডামি ডেটা (নমুনা প্রতিষ্ঠান, ইউজার, পণ্য ও ইনভয়েস) মুছে ফেলা হবে এবং প্রথমবার ব্যবহারের ক্ষেত্রে সরাসরি নতুন অনবোর্ডিং স্ক্রিন থেকে যাত্রা শুরু হবে।
-- **একক নেভিগেশন ও ডুপ্লিকেট বাটন বর্জন**: একই কাজের জন্য একাধিক বাটন ও মডিউল বাদ দেওয়া হবে—বিশেষ করে নিচের ফ্লোটিং কুইক-অ্যাকশন বার এবং মোবাইলের `+` স্পিড-ডায়াল বাটন সরিয়ে একক, পরিচ্ছন্ন নেভিগেশন রাখা হবে।
-- **২-ধাপের অনবোর্ডিং প্রবাহ**: প্রথমবার ব্যবহারের ক্ষেত্রে দুই ধাপে সেটআপ সম্পন্ন হবে: **১) ওনার (Owner) অ্যাকাউন্ট তৈরি** এবং **২) প্রতিষ্ঠান ও মূল শাখা অনবোর্ডিং**।
-- **অফিসিয়াল অ্যাপ আইকন উপস্থাপনা**: ইউজারের প্রদানকৃত নতুন বেপারী বিজনেস গ্রোথ আইকনটি (`/assets/aistudio/_______Business_Growth_Icon_91a353f7.png`) অ্যাপের সর্বত্র (হেডার, সাইডবার, লগইন, অনবোর্ডিং, মোবাইল ড্রয়ার, ব্রাউজার ফেভিকন ও PWA ম্যানিফেস্ট) ব্যবহার করা হবে এবং ডেস্কটপ/হেডারে আইকনের পাশে ক্লিন **বেপারী** টেক্সট থাকবে। প্রতিষ্ঠানের নিজস্ব লোগো শুধুমাত্র ক্যাশ মেমো, ইনভয়েস ও ব্যবসায়িক ডকুমেন্টে ব্যবহৃত হবে।
+Updates the deployment architecture so **Bepari runs 100% on the user's device with a real relational SQLite database (`sql.js` WebAssembly + `IndexedDB` persistence)** out of the box when deployed via GitHub -> Cloudflare Pages—eliminating the `405` error completely with zero required cloud database setup—while preserving a seamless opt-in path to connect **Cloudflare D1** or a Node.js backend whenever a client requests cloud sync, and fixing the GitHub Actions lockfile error with `package-lock.json`.
 
----
+## User Review & Critical Decisions
 
-## ১. সারসংক্ষেপ ও মূল ধারণা (Overview & Core Concept)
-
-এই আপগ্রেডের মূল লক্ষ্য হলো **বেপারী (Bepari)**-কে যেকোনো প্রটোটাইপ বা ডামি ডেটা-নির্ভর অবস্থা থেকে বের করে একটি শতভাগ প্রোডাকশন-রেডি, মানবিক ও বিভ্রান্তিমুক্ত এন্টারপ্রাইজ সফটওয়্যারে রূপান্তর করা:
-
-1. **শূন্য ডামি ডেটা ও প্রকৃত অনবোর্ডিং (Zero-Dummy First-Run Onboarding)**:
-   সার্ভার চালু হওয়ার সময় বা ডাটাবেজ ইনিশিয়ালাইজেশনে কোনো ডামি প্রতিষ্ঠান (`Dhaka Trade & Textiles Ltd.`), ডামি ইউজার (`Rafiqul Islam`) কিংবা নমুনা পণ্য/ইনভয়েস স্বয়ংক্রিয়ভাবে তৈরি হবে না। সিস্টেমে শুধুমাত্র হিসাববিজ্ঞানের মৌলিক চার্ট অব অ্যাকাউন্টস (Chart of Accounts) এবং সরকারি মূসক (NBR VAT) নিয়মাবলি স্ট্রাকচারাল কনফিগারেশন হিসেবে থাকবে। এছাড়া ইন্টারফেস থেকে সকল **"নমুনা ডেটা লোড করুন" (Load Sample Data)** বাটন স্থায়ীভাবে সরিয়ে দেওয়া হবে।
-
-2. **অফিসিয়াল অ্যাপ আইকন বনাম প্রতিষ্ঠানের লোগোর স্পষ্ট সীমানা**:
-   অ্যাপ্লিকেশনের নিজস্ব ব্র্যান্ডিং এবং ব্যবহারকারীর প্রতিষ্ঠানের ব্র্যান্ডিং সম্পূর্ণ আলাদা। ইউজারের দেওয়া নতুন আইকনটি অ্যাপের স্থায়ী পরিচয় হিসেবে ব্রাউজার ট্যাব, PWA শর্টকাট, লগইন, অনবোর্ডিং, ডেস্কটপ সাইডবার ও মোবাইল নেভিগেশনে ব্যবহৃত হবে। অন্যদিকে ব্যবহারকারী অনবোর্ডিং বা সেটিংসে তার প্রতিষ্ঠানের যে লোগো আপলোড করবেন, তা কেবল প্রতিষ্ঠানের ইনভয়েস, ক্যাশ মেমো ও রিপোর্টে প্রদর্শিত হবে।
-
-3. **মোবাইল ভিউতে একক স্ক্রল (Single-Scroll Ergonomics) ও ডুপ্লিকেট বাটন নিরসন**:
-   মোবাইল স্ক্রিনে পেজের ভেতরে আলাদা আলাদা ছোট বক্সে নেস্টেড স্ক্রলবার (`overflow-y-auto` / `overflow-x-auto`) থাকার কারণে স্ক্রল আটকে যাওয়া বা বিভ্রান্তি তৈরি হওয়া বন্ধ করা হবে। প্রতিটি মডিউলে একটি নির্দিষ্ট কাজের জন্য কেবল একটিই সুস্পষ্ট প্রাইমারি অ্যাকশন বাটন থাকবে।
+> [!IMPORTANT]
+> **Revised Architecture Alignment**:
+> - **Device-First Real Database (Default on Cloudflare Pages)**: Every user/client opening the deployed Cloudflare Pages app runs a real 21-table SQLite database directly on their own device (`sql.js` WASM persisted to browser `IndexedDB`), starting cleanly at the 2-step **Owner Account & Organization Onboarding Wizard** with zero dummy data and zero network `405` errors.
+> - **Opt-In Cloud Database Later (No Rewrite Required)**: Built-in **Cloudflare Pages Functions + D1** support stays ready inside the same shared router; whenever a client chooses cloud multi-device sync and binds a Cloudflare D1 (`DB`) database, the app automatically switches from `on-device` SQLite to `cloud-d1` without changing UI or accounting logic.
+> - **GitHub Actions & npm Lockfile**: Replacing `bun.lock` with a committed `package-lock.json` resolves `actions/setup-node@v4` lockfile errors and standardizes builds on `npm`.
 
 ---
 
-## ২. ইউজার এক্সপেরিয়েন্স ও ভিজ্যুয়াল ডিজাইন (User Experience & Visual Design)
+## 1. Overview & Core Concept
 
-### ক. ২-ধাপের প্রথমবার অনবোর্ডিং উইজার্ড (First-Run Onboarding Flow)
-যখন ডাটাবেজে কোনো ইউজার বা অনবোর্ডেড প্রতিষ্ঠান থাকবে না, তখন লগইন স্ক্রিনের পরিবর্তে একটি পরিচ্ছন্ন, স্টেপ-বাই-স্টেপ **অনবোর্ডিং উইজার্ড** প্রদর্শিত হবে:
-- **ধাপ ১ — ওনার (Owner) অ্যাকাউন্ট তৈরি**:
-  - উপরে অফিসিয়াল বেপারী অ্যাপ আইকন ও স্বাগতম শিরোনাম।
-  - ইনপুট ফিল্ডসমূহ: **পূর্ণ নাম** (যেমন: প্রোপ্রাইটর বা ব্যবস্থাপকের নাম), **ইমেইল বা লগইন আইডি**, **নিরাপদ পাসওয়ার্ড** (ন্যূনতম ৬ অক্ষর) এবং **পাসওয়ার্ড নিশ্চিতকরণ**।
-  - *"পরবর্তী ধাপ: প্রতিষ্ঠানের তথ্য →"* বাটনে ক্লিক করলে ভ্যালিডেশন শেষে দ্বিতীয় ধাপে নিয়ে যাবে।
-- **ধাপ ২ — প্রতিষ্ঠান ও মূল শাখা সেটআপ**:
-  - **প্রতিষ্ঠানের নাম (বাংলায়)** ও **প্রতিষ্ঠানের নাম (ইংরেজিতে)**।
-  - **প্রোপ্রাইটর / স্বত্বাধিকারীর নাম** (ধাপ ১-এর নাম থেকে স্মার্টলি প্রি-ফিল হবে, তবে পরিবর্তনযোগ্য), **মোবাইল নম্বর**, **ব্যবসায়িক ঠিকানা**, এবং ঐচ্ছিক **স্লোগান / ব্যবসার বিবরণ** ও **BIN / মূসক নিবন্ধন নম্বর**।
-  - **মূল শাখা (Main Branch)**: শাখার নাম (ডিফল্ট: *প্রধান শাখা / Main Branch*), শাখা কোড (`MAIN`) ও অবস্থান।
-  - **মূসক (VAT) মোড**: *মূসক ছাড়া সাধারণ ক্যাশ মেমো* অথবা *১৫% মূসকসহ চালান* বেছে নেওয়ার সহজ টগল।
-  - *"সেটআপ সম্পন্ন করুন ও ওয়ার্কস্পেসে প্রবেশ করুন"* বাটনে ক্লিক করলে সাথে সাথে ডাটাবেজে ওনার ইউজার, প্রতিষ্ঠান ও মূল শাখা সংরক্ষিত হবে, অডিও-ভিজ্যুয়াল কনফার্মেশন কার্ড দেখাবে এবং ইউজার সরাসরি লগইন অবস্থায় মূল ড্যাশবোর্ডে প্রবেশ করবেন।
-
-### খ. শূন্য-ডেটা (Clean Empty State) ওয়ার্কস্পেস অভিজ্ঞতা
-- অনবোর্ডিং শেষে ড্যাশবোর্ড, ক্যাশ কাউন্টার, ইনভয়েস ও ইনভেন্টরিতে কোনো কাল্পনিক সংখ্যা বা ডামি তালিকা থাকবে না।
-- প্রতিটি খালি মডিউলে পরিচ্ছন্ন ও অর্থবহ গাইডেড অ্যাকশন থাকবে (যেমন: ইনভেন্টরিতে *"প্রথম পণ্য যোগ করুন"*, ক্যাশ কাউন্টারে *"পণ্য যোগ করে বিক্রয় শুরু করুন"*), কিন্তু কোনো ডামি ডেটা লোড করার বাটন থাকবে না।
-
-### গ. মোবাইল সিঙ্গেল-স্ক্রল ও ডুপ্লিকেট অ্যাকশন ক্লিনআপ
-- **ফ্লোটিং বার ও `+` বাটন অপসারণ**: স্ক্রিনের নিচে ভেসে থাকা `FloatingQuickActions` ডক এবং মোবাইলের ডানপাশের `+` ফ্লোটিং বাটন সম্পূর্ণ সরিয়ে ফেলা হবে। ফলে মোবাইলে নিচের কন্টেন্ট ঢেকে যাবে না এবং একই কাজের বাটন দুই জায়গায় দেখাবে না।
-- **নেস্টেড স্ক্রলবার অপসারণ**:
-  - মোবাইল ভিউতে **ক্যাশ কাউন্টার (POS Counter)**-এর কার্ট আইটেম লিস্ট (`max-h-64 overflow-y-auto`), **ক্যাশ মেমো কাস্টমাইজার**-এর টেমপ্লেট ও কন্ট্রোল প্যানেল, এবং সাব-ট্যাব বারগুলোকে প্রাকৃতিক পেজ-স্ক্রল ও রেসপনসিভ গ্রিড/র‍্যাপ লেআউটে নিয়ে আসা হবে।
-  - শুধুমাত্র পপআপ মোডাল ও ড্রয়ারের ভেতরে নিজস্ব স্ক্রল থাকবে; মূল পেজে কেবল ব্রাউজারের নিজস্ব একটিই স্ক্রলবার কাজ করবে।
+- **What It Does**:
+  1. **Fixes GitHub Actions Build Error**: Commits a valid `package-lock.json` (and removes `bun.lock`) so `actions/setup-node@v4` (`cache: 'npm'`) and `npm ci` pass reliably on GitHub and Cloudflare Pages.
+  2. **Fixes Cloudflare `Request failed (405)` Permanently**: Replaces blind `POST /api/...` bootstrap calls with a safe `GET /api/runtime` check and routes API calls to the **On-Device SQLite WASM Engine** whenever no cloud backend is attached.
+  3. **Full Real Database on Device + Portable Backups**: All customers, products, POS sales, invoices, Mushak 6.3 challans, double-entry journals, cash memo templates, and authentication run real SQLite queries on the device and persist across reloads/offline restarts in `IndexedDB` (with `.sqlite` database backup export/restore support in Settings).
+- **Target Audience / Persona**: Shop owners, wholesalers, and SMEs using Bepari from desktop or mobile browsers—ready immediately after deploying on Cloudflare Pages without needing cloud database provisioning unless they opt into cloud sync later.
 
 ---
 
-## ৩. মূল প্রোডাক্ট সিদ্ধান্ত ও ট্রেড-অফ (Key Product Decisions & Trade-Offs)
+## 2. User Experience & Visual Design
 
-1. **অ্যাটমিক অনবোর্ডিং ট্রানজেকশন (Atomic 2-Step Onboarding vs. Multi-Screen Separate Saves)**:
-   - *সিদ্ধান্ত*: ইউজার ইন্টারফেসে ধাপ ১ ও ধাপ ২ আলাদাভাবে গাইড করা হলেও ডাটাবেজে একটি একক অ্যাটমিক ট্রানজেকশনে (`POST /api/auth/onboard`) ওনার অ্যাকাউন্ট, প্রতিষ্ঠান এবং মূল শাখা একসাথে তৈরি করা হবে।
-   - *কেন*: এতে অর্ধেক অনবোর্ডিং হয়ে ব্রাউজার বন্ধ হয়ে গেলে ডাটাবেজ অসামঞ্জস্যপূর্ণ (যেমন ইউজার তৈরি হয়েছে কিন্তু শাখা নেই) অবস্থায় আটকে থাকার কোনো ঝুঁকি থাকবে না।
-
-2. **ডামি ডেটা সম্পূর্ণ বর্জন বনাম অটোমেটেড টেস্ট সাপোর্ট**:
-   - *সিদ্ধান্ত*: অ্যাপ্লিকেশন রানটাইম, সার্ভার স্টার্টআপ ও ইউজার ইন্টারফেস থেকে সকল ডামি ডেটা ও সিডিং এন্ডপয়েন্ট মুছে ফেলা হবে। তবে ব্যাকএন্ডের পিওর ইউনিট টেস্ট স্যুট (`engineService.test.ts`) যেন আগের মতোই সব হিসাববিজ্ঞান ও ইনভয়েস লজিক পরীক্ষা করতে পারে, সেজন্য টেস্ট ফিক্সচার শুধুমাত্র টেস্ট রানারের মেমোরিতে ব্যবহৃত হবে।
-   - *কেন*: এতে আসল ব্যবহারকারী শতভাগ পরিচ্ছন্ন ডাটাবেজ পাবেন, আবার আমাদের স্বয়ংক্রিয় কোয়ালিটি টেস্টও অক্ষুণ্ণ থাকবে।
-
-3. **অ্যাপ আইকন ও প্রতিষ্ঠানের লোগোর পৃথকীকরণ**:
-   - *সিদ্ধান্ত*: `BepariLogo` কম্পোনেন্টটি সর্বদা ইউজারের দেওয়া নতুন `/assets/aistudio/_______Business_Growth_Icon_91a353f7.png` আইকন রেন্ডার করবে। ডেস্কটপ সাইডবার ও হেডারে আইকনের পাশে পরিচ্ছন্ন বাংলা/ইংরেজি ব্র্যান্ড নাম থাকবে এবং মোবাইল হেডারে কমপ্যাক্ট আইকন ও নাম থাকবে।
-   - *কেন*: আইকনটির ভেতরে গ্রাফিক্যাল বেপারী চিহ্ন থাকলেও ডেস্কটপ নেভিগেশনে পাশে টেক্সট ও সাবটাইটেল থাকলে এন্টারপ্রাইজ সফটওয়্যার হিসেবে ব্র্যান্ডের স্পষ্টতা বৃদ্ধি পায়।
+- **Zero-Friction Startup on Cloudflare Pages**: Opening the deployed site lands directly on Step 1 of the 2-step **Owner & Organization Onboarding Wizard** backed by the on-device SQLite database—no `405` errors, no `DB` setup blockers, and no pre-seeded dummy data.
+- **Clear Storage Mode Visibility & Data Safety**:
+  - In **Settings -> Security & Backup**, users can see the active database mode (`On-Device SQLite` vs `Cloud D1` vs `Server SQLite`) and export or import a complete `.sqlite` database backup file anytime so device data is portable and safe.
+- **Content-Type Guard on Network Requests**: Any probe to `/api/runtime` verifies `application/json` content-type so static HTML fallback pages on edge hosts can never trigger false API requests or `405` errors.
 
 ---
 
-## ৪. টেকনিক্যাল আর্কিটেকচার ও ডেটা স্ট্র্যাটেজি (Technical Architecture & Data Strategy)
+## 3. Key Product Decisions & Trade-Offs
 
-### সিস্টেম আর্কিটেকচার ও অনবোর্ডিং ফ্লো ডায়াগ্রাম
+- **Decision 1: Shared Async SQL Engine (`DbClient`) Across On-Device WASM, Cloudflare D1, and Node SQLite**
+  - *Chosen Approach*: Refactor all database queries, transactions, accounting/POS services, and API route handlers into one isomorphic TypeScript engine operating over a unified async `DbClient` interface implemented by:
+    1. `BrowserSqliteAdapter` (`sql.js` WebAssembly + `IndexedDB` snapshot persistence) — default for static/Cloudflare Pages deployments without a cloud DB.
+    2. `CloudD1Adapter` (Cloudflare Pages Functions + `env.DB`) — auto-enabled when a client attaches a Cloudflare D1 database.
+    3. `NodeSqliteAdapter` (`better-sqlite3`) — active in local/AI Studio Node server (`server.ts`).
+  - *Why*: Eliminates any duplicate prototype/mock code. Whether running on-device or in the cloud, the exact same SQL schema, double-entry ledger balancing, weighted-average/FIFO stock COGS, and NBR VAT calculations execute.
+  - *Alternatives Considered*: Using plain `localStorage` JSON blobs (rejected—cannot support relational joins, foreign keys, ledger constraints, or clean cloud SQLite migration).
+
+- **Decision 2: Runtime Auto-Detection via Safe `GET /api/runtime`**
+  - *Chosen Approach*: On startup, the client checks `GET /api/runtime`:
+    - Node server responds `{ engine: 'node-sqlite' }`.
+    - Cloudflare Pages Functions with `env.DB` bound responds `{ engine: 'cloud-d1' }`.
+    - Cloudflare Pages Functions without `env.DB` responds `{ engine: 'on-device' }` (HTTP `200`), and pure static hosts returning HTML/404 fall back cleanly to `'on-device'`.
+  - *Why*: Eliminates `405 Method Not Allowed` forever while allowing zero-code switching to Cloudflare D1 later simply by attaching the `DB` binding in Cloudflare Dashboard.
+
+- **Decision 3: Portable Web Crypto Authentication (`PBKDF2-SHA256`)**
+  - *Chosen Approach*: Use standard Web Crypto (`crypto.subtle` PBKDF2-SHA256 + `crypto.getRandomValues`) for password hashing and session tokens across Browser, Cloudflare Edge, and Node 22+ (with backward verification for legacy `scrypt` hashes in Node).
+  - *Why*: Runs natively inside browsers, Cloudflare Workers/Pages Functions, and Node without native C++ addons.
+
+- **Security Safeguards Built In**:
+  - **Parameterized Queries Everywhere**: All SQL operations across Browser SQLite, Cloudflare D1, and Node SQLite exclusively use `?` parameter placeholders.
+  - **Real Server/Engine Auth & RBAC Enforcement**: Passwords are salted and hashed (never stored in plaintext), session tokens stay strictly in memory (never `localStorage`), and role permissions (`owner`, `accountant`, `manager`, `cashier`, `auditor`) are enforced inside the shared API router regardless of runtime mode.
+  - **Strict Bundle & Credential Isolation**: Browser bundles only include the WebAssembly SQLite client (`sql.js`), keeping Node filesystem access and server environment variables isolated on the server/edge.
+
+---
+
+## 4. Technical Architecture & Data Strategy
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                        Client Application (React)                       │
-│                                                                         │
-│   GET /api/auth/status                                                  │
-│           │                                                             │
-│           ├──► needsOnboarding: true ──► [ ২-ধাপের অনবোর্ডিং উইজার্ড ]    │
-│           │                              ধাপ ১: ওনার অ্যাকাউন্ট            │
-│           │                              ধাপ ২: প্রতিষ্ঠান ও মূল শাখা       │
-│           │                                      │                      │
-│           │                              POST /api/auth/onboard         │
-│           │                                      │                      │
-│           ▼                                      ▼                      │
-│   needsOnboarding: false ─────────────► [ মূল ওয়ার্কস্পেস ও একক নেভিগেশন ] │
-└──────────────────────────────────────────────────┬──────────────────────┘
-                                                   │
-┌──────────────────────────────────────────────────▼──────────────────────┐
-│                     Backend Engine & SQLite Database                    │
-│                                                                         │
-│  ┌───────────────────────────────────────────────────────────────────┐  │
-│  │ SQLite Transaction (Atomic First-Run Provisioning)                │  │
-│  │  1. users         -> Owner Account (scrypt password hash)         │  │
-│  │  2. organizations -> Real Business Info + onboarding_completed=1  │  │
-│  │  3. branches      -> Main Branch (is_main=1)                      │  │
-│  │  4. sessions      -> Immediate Authenticated Session Token        │  │
-│  └───────────────────────────────────────────────────────────────────┘  │
-│                                                                         │
-│  Baseline Statutory Schema Only:                                        │
-│  • accounts (Chart of Accounts)   • tax_rules (NBR VAT configurations)  │
-└─────────────────────────────────────────────────────────────────────────┘
+│                       React SPA Frontend (dist/)                        │
+│     OnboardingWizard · LoginScreen · POS · Cash Memo · Backup/Restore   │
+└────────────────────────────────────┬────────────────────────────────────┘
+                                     │
+                     ┌───────────────┴───────────────┐
+                     │  Runtime Probe: GET /api/runtime
+                     └───────────────┬───────────────┘
+          ┌──────────────────────────┴──────────────────────────┐
+          ▼ (Default on Cloudflare: On-Device)                  ▼ (When Cloud DB Enabled)
+┌───────────────────────────────────────┐         ┌───────────────────────────────────────┐
+│   In-Browser API Client Dispatch      │         │   HTTP fetch('/api/*') to Backend     │
+│   Zero network calls; zero 405 errors │         │   Cloudflare Pages Functions / Node   │
+└───────────────────┬───────────────────┘         └───────────────────┬───────────────────┘
+                    │                                                 │
+                    └────────────────────────┬────────────────────────┘
+                                             ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│             Shared Isomorphic API Router, Auth Core & Engine            │
+│    Session Auth · RBAC · Double-Entry Ledger · Stock COGS · Mushak 6.3  │
+└──────────┬─────────────────────────────────┬──────────────────┬─────────┘
+           │                                 │                  │
+           ▼                                 ▼                  ▼
+┌─────────────────────┐         ┌─────────────────────┐  ┌────────────────┐
+│ BrowserSqliteAdapter│         │    CloudD1Adapter   │  │NodeSqliteAdapter│
+│ sql.js WASM + IDB   │         │ Cloudflare D1 (DB)  │  │ better-sqlite3 │
+│ (Device Persistent) │         │ (Opt-In Cloud Sync) │  │ (Local / VPS)  │
+└─────────────────────┘         └─────────────────────┘  └────────────────┘
 ```
 
-### ডাটাবেজ ও মাইগ্রেশন কৌশল
-1. **`organizations` টেবিলে `onboarding_completed` ফ্ল্যাগ**:
-   - `organizations` টেবিলে `onboarding_completed INTEGER NOT NULL DEFAULT 0` কলাম যুক্ত হবে।
-   - যদি বর্তমান ডাটাবেজে পুরনো ডামি প্রতিষ্ঠান (`Dhaka Trade & Textiles Ltd.` / `accounts@dhakatrade.com.bd`) পাওয়া যায় এবং `onboarding_completed = 0` থাকে, তবে স্টার্টআপ মাইগ্রেশনে একটি ওয়ান-টাইম ক্লিনআপ চলেছে যা পুরনো ডামি ইনভয়েস, পেমেন্ট, পণ্য, কাস্টমার, ভেন্ডর, শাখা, ডামি ইউজার ও জার্নাল মুছে ডাটাবেজকে সম্পূর্ণ ফ্রেশ অনবোর্ডিং অবস্থায় নিয়ে আসবে।
-2. **অথেনটিকেশন ও অনবোর্ডিং স্ট্যাটাস (`GET /api/auth/status`)**:
-   - ডাটাবেজে কোনো অ্যাক্টিভ ইউজার না থাকলে অথবা `onboarding_completed === 0` হলে এন্ডপয়েন্টটি `{ needsOnboarding: true, locked: true, users: [] }` রিটার্ন করবে।
-   - ক্লায়েন্ট অ্যাপ্লিকেশন `needsOnboarding === true` পেলে সরাসরি ২-ধাপের `OnboardingWizard` প্রদর্শন করবে।
-
-### নিরাপত্তা ও ভ্যালিডেশন সুরক্ষা (Security Safeguards)
-- **ওয়ান-টাইম অনবোর্ডিং লক (Single-Initialization Guard)**: `POST /api/auth/onboard` এন্ডপয়েন্টটি শুধুমাত্র তখনই কাজ করবে যখন ডাটাবেজে কোনো ইউজার নেই বা অনবোর্ডিং সম্পন্ন হয়নি (`needsOnboarding === true`)। একবার অনবোর্ডিং সম্পন্ন হয়ে গেলে এই এন্ডপয়েন্টে যেকোনো রিকোয়েস্ট `403 Forbidden` দিয়ে ব্লক করা হবে, যাতে কেউ পরবর্তীতে অননুমোদিত ওনার অ্যাকাউন্ট তৈরি করতে না পারে।
-- **ক্রিপ্টোগ্রাফিক পাসওয়ার্ড হ্যাশিং**: অনবোর্ডিংয়ের সময় তৈরি করা ওনার পাসওয়ার্ড কখনোই প্লেইনটেক্সটে সংরক্ষণ করা হবে না; সার্ভার-সাইড `scrypt` ও র‍্যান্ডম সল্ট (`hashPassword`) ব্যবহার করে হ্যাশ করে `users.password_hash` এবং `organizations.admin_password_hash`-এ সংরক্ষণ করা হবে।
-- **সার্ভার-সাইড ইনপুট স্যানিটাইজেশন**: প্রতিষ্ঠানের নাম, মোবাইল নম্বর, ইমেইল, শাখা কোড ও পাসওয়ার্ডের দৈর্ঘ্য সার্ভার-সাইডে কঠোরভাবে যাচাই ও ট্রিম করা হবে এবং সকল ডাটাবেজ কুয়েরি প্যারামিটারাইজড স্টেটমেন্টের মাধ্যমে পরিচালিত হবে।
+- **On-Device Persistence Lifecycle (`BrowserSqliteAdapter`)**:
+  - Loads `sql.js` WebAssembly bundled cleanly by Vite (`?url` asset import, works offline and on Cloudflare CDN without external URLs).
+  - Hydrates existing SQLite binary bytes from `IndexedDB` (`bepari_local_db`) on startup, applies idempotent `initSchema` + `seedBaselineConfig` (empty organization awaiting onboarding + COA + VAT rules), and persists updated SQLite bytes back to `IndexedDB` cleanly after every mutating request or transaction.
+  - Supports exporting/importing `.sqlite` database files in Settings so users can back up device data or move between devices anytime.
+- **Opt-In Cloud Upgrade Path (`wrangler.toml` + Pages Functions)**:
+  - Ships `wrangler.toml` (`pages_build_output_dir = "./dist"`, `nodejs_compat`) and a catch-all Cloudflare Pages `/api/*` handler. While `DB` is unbound, `/api/runtime` returns `{ engine: 'on-device' }` cleanly (`200 OK`); once a client creates a Cloudflare D1 database and binds it as `DB`, `/api/runtime` returns `{ engine: 'cloud-d1' }` automatically.
+- **GitHub & Cloudflare CI Pipeline**:
+  - Removes `bun.lock` and generates `package-lock.json` via `npm` so `actions/setup-node@v4` (`cache: 'npm'`) and Cloudflare Pages Git integration build deterministically with `npm ci` and `npm run build`.
