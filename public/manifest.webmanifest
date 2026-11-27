@@ -1,0 +1,17 @@
+{
+  "name": "Bepari — বেপারী",
+  "short_name": "বেপারী",
+  "description": "Bilingual invoicing, Bangladesh VAT & Mushak compliance, double-entry accounting, POS, and multi-branch inventory workspace.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F7F8FA",
+  "theme_color": "#0F766E",
+  "icons": [
+    {
+      "src": "/assets/aistudio/_______Business_Growth_Icon_91a353f7.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

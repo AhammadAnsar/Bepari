@@ -1,112 +1,52 @@
 <!doctype html>
-<html lang="bn">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <script>
       (function () {
-        if (typeof window === 'undefined') return;
-
-        function ensureWritableFetch(target) {
-          if (!target) return;
-          try {
-            var desc = Object.getOwnPropertyDescriptor(target, 'fetch');
-            if (desc && typeof desc.get === 'function' && typeof desc.set !== 'function') {
-              if (desc.configurable) {
-                var currentGetter = desc.get;
-                var customFetch = null;
-                Object.defineProperty(target, 'fetch', {
-                  configurable: true,
-                  enumerable: desc.enumerable !== false,
-                  get: function () {
-                    return customFetch || currentGetter.call(this);
-                  },
-                  set: function (fn) {
-                    if (typeof fn === 'function') {
-                      customFetch = fn;
-                    }
-                  },
-                });
-              }
-            }
-          } catch (_err) {
-            // Descriptor is non-configurable; handled by error boundary below
+        try {
+          var desc = Object.getOwnPropertyDescriptor(window, 'fetch');
+          if (desc && desc.get && !desc.set && desc.configurable) {
+            Object.defineProperty(window, 'fetch', {
+              configurable: true,
+              enumerable: desc.enumerable,
+              get: desc.get,
+              set: function () {},
+            });
           }
-        }
-
-        ensureWritableFetch(window);
-        if (typeof Window !== 'undefined' && Window.prototype) {
-          ensureWritableFetch(Window.prototype);
-        }
-
-        function isExtensionOrReadonlyFetchError(message, filename, stack) {
-          var msg = String(message || '');
-          var file = String(filename || '');
-          var stk = String(stack || '');
-          if (
-            msg.indexOf('Cannot set property fetch of #<Window>') !== -1 ||
-            msg.indexOf('Cannot set property fetch of') !== -1
-          ) {
-            return true;
-          }
-          if (
-            file.indexOf('chrome-extension://') === 0 ||
-            file.indexOf('moz-extension://') === 0 ||
-            stk.indexOf('chrome-extension://') !== -1 ||
-            stk.indexOf('moz-extension://') !== -1
-          ) {
-            return true;
-          }
-          return false;
-        }
-
+        } catch (_) {}
         window.addEventListener(
           'error',
-          function (event) {
-            var err = event && event.error;
-            if (
-              isExtensionOrReadonlyFetchError(
-                event && event.message,
-                event && event.filename,
-                err && err.stack
-              )
-            ) {
-              event.stopImmediatePropagation();
-              event.preventDefault();
-              return false;
-            }
-          },
-          true
-        );
-
-        window.addEventListener(
-          'unhandledrejection',
-          function (event) {
-            var reason = event && event.reason;
-            var msg = reason && (reason.message || String(reason));
-            var stack = reason && reason.stack;
-            if (isExtensionOrReadonlyFetchError(msg, '', stack)) {
-              event.stopImmediatePropagation();
-              event.preventDefault();
-              return false;
+          function (e) {
+            var src = (e && e.filename) || '';
+            var stack = (e && e.error && e.error.stack) || '';
+            if (src.indexOf('chrome-extension://') === 0 || stack.indexOf('chrome-extension://') !== -1) {
+              e.preventDefault();
+              e.stopImmediatePropagation();
             }
           },
           true
         );
       })();
     </script>
-    <title>Bepari — Business Management & Accounting</title>
-    <meta name="description" content="Bangla-first, mobile-first SME business management, double-entry accounting, inventory, and VAT workpaper platform for Bangladesh." />
-    <meta property="og:title" content="Bepari — Business Management & Accounting" />
-    <meta property="og:description" content="Bangla-first, mobile-first SME business management, double-entry accounting, inventory, and VAT workpaper platform for Bangladesh." />
+    <title>Bepari — Invoicing, VAT &amp; Accounting Workspace</title>
+    <meta name="description" content="Bilingual invoicing, Bangladesh VAT &amp; Mushak compliance, double-entry accounting, POS, multi-branch inventory, and financial reporting workspace." />
+    <meta property="og:title" content="Bepari — Invoicing, VAT &amp; Accounting Workspace" />
+    <meta property="og:description" content="Bilingual invoicing, Bangladesh VAT &amp; Mushak compliance, double-entry accounting, POS, multi-branch inventory, and financial reporting workspace." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" type="image/png" href="/assets/aistudio/_______Business_Growth_Icon_91a353f7.png" />
+    <link rel="apple-touch-icon" href="/assets/aistudio/_______Business_Growth_Icon_91a353f7.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#0F766E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+Bengali:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Baloo+Da+2:wght@500;600;700;800&family=Hind+Siliguri:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+Bengali:wght@400;500;600;700;800&family=Noto+Serif+Bengali:wght@400;500;600;700&family=Tiro+Bangla:ital@0;1&display=swap" rel="stylesheet" />
   </head>
-  <body class="bg-[#FAFAF8] text-[#172326] antialiased selection:bg-[#126B58]/15 selection:text-[#126B58]">
+  <body class="bg-[#F7F8FA] text-[#0F172A] antialiased selection:bg-[#0F766E]/15 selection:text-[#0F766E]">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
+

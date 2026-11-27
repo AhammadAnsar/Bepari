@@ -1,30 +1,27 @@
 @import "tailwindcss";
 
+@theme {
+  --font-sans: "IBM Plex Sans", "Noto Sans Bengali", ui-sans-serif, system-ui, sans-serif;
+  --font-bn: "Noto Sans Bengali", "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
 @layer base {
-  :root {
-    --surface-canvas: #FAFAF8;
-    --surface-card: #FFFFFF;
-    --surface-subtle: #F2F4F1;
-    --text-primary: #172326;
-    --text-secondary: #5D686D;
-    --border-hairline: #E0E6E2;
-    --action-primary: #126B58;
-    --action-hover: #0C5345;
-    --focus-ring: #287A69;
-    --status-warning: #A65E13;
-    --status-danger: #B42318;
-  }
-
+  html,
   body {
-    font-family: 'Noto Sans Bengali', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-    background-color: var(--surface-canvas);
-    color: var(--text-primary);
-    font-feature-settings: "kern" 1, "liga" 1;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: clip;
+    overscroll-behavior-y: contain;
+    -webkit-tap-highlight-color: transparent;
   }
 
-  .font-mono-tabular {
-    font-family: 'JetBrains Mono', monospace;
-    font-variant-numeric: tabular-nums;
+  button,
+  a,
+  select,
+  input {
+    touch-action: manipulation;
   }
 
   .tabular-nums {
@@ -32,19 +29,15 @@
   }
 }
 
-/* Visible keyboard focus ring compliant with WCAG 2.2 AA */
-*:focus-visible {
-  outline: 2px solid #287A69;
-  outline-offset: 2px;
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  ::before,
-  ::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }

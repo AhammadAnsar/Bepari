@@ -1,6 +1,6 @@
 {
-  "name": "Bepari — Business Management & Accounting",
-  "description": "Bangla-first, mobile-first SME business management, double-entry accounting, inventory, and VAT workpaper platform for Bangladesh.",
-  "requestFramePermissions": [],
+  "name": "Bepari",
+  "description": "Bilingual invoicing, Bangladesh VAT & Mushak compliance, double-entry accounting, POS, multi-branch inventory, and financial reporting workspace.",
+  "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
